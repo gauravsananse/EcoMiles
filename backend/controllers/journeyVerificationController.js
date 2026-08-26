@@ -339,11 +339,27 @@ exports.endJourney = async (req, res) => {
       }
     }
 
-    // Release verified rewards
-    const releaseRes = await rewardEngine.finalizeAndReleaseJourneyRewards(journey._id, journey.userId);
+    // Determine Validation Outcome (Requirements 7 & 8)
+    const isMobile = journey.sensorAvailability?.isMobile !== false && journey.sensorAvailability?.deviceType !== 'DESKTOP' && journey.sensorAvailability?.deviceType !== 'LAPTOP';
+    const isSuspicious = journey.overallFraudScore > 40 || !isMobile;
+    const validationOutcome = isSuspicious ? 'UNVERIFIED JOURNEY' : 'VALID WALKING JOURNEY';
+    const validationBadge = journey.overallFraudScore > 40 ? '⚠️ Journey Requires Verification' : (!isMobile ? 'UNVERIFIED JOURNEY (Desktop)' : 'VALID WALKING JOURNEY');
 
-    journey.totalGreenCredits = segments.reduce((acc, s) => acc + (s.earnedGreenCredits || 0), 0);
-    journey.totalFitnessPoints = segments.reduce((acc, s) => acc + (s.earnedFitnessPoints || 0), 0);
+    journey.validationOutcome = validationOutcome;
+    journey.validationBadge = validationBadge;
+
+    // Release verified rewards only if valid and not suspicious
+    let releaseRes = { releasedCredits: 0, releasedPoints: 0 };
+    if (!isSuspicious) {
+      releaseRes = await rewardEngine.finalizeAndReleaseJourneyRewards(journey._id, journey.userId);
+    } else {
+      // Zero out credits for unverified journeys
+      journey.totalGreenCredits = 0;
+      journey.totalFitnessPoints = 0;
+    }
+
+    journey.totalGreenCredits = isSuspicious ? 0 : segments.reduce((acc, s) => acc + (s.earnedGreenCredits || 0), 0);
+    journey.totalFitnessPoints = isSuspicious ? 0 : segments.reduce((acc, s) => acc + (s.earnedFitnessPoints || 0), 0);
     journey.totalDurationMinutes = Number(Math.max(0.1, (now.getTime() - new Date(journey.startTime).getTime()) / 60000).toFixed(1));
 
     await journey.save();
@@ -359,8 +375,14 @@ exports.endJourney = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Journey completed, verified, and rewards released!',
-      journey,
+      message: isSuspicious ? 'Journey ended but requires verification. No credits awarded.' : 'Journey completed, verified, and rewards released!',
+      journey: {
+        ...journey.toObject(),
+        validationOutcome,
+        validationBadge,
+      },
+      validationOutcome,
+      validationBadge,
       releasedRewards: releaseRes,
       updatedUser: updatedUser ? {
         fitnessPoints: updatedUser.fitnessPoints,

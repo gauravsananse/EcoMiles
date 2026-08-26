@@ -1,13 +1,19 @@
 /**
- * Real Browser Sensor Manager
- * Handles real browser APIs (Geolocation, DeviceMotionEvent, DeviceOrientationEvent, Web Bluetooth)
- * with robust error handling, iOS permission flows, and normalized sensor windows.
+ * Real Browser & Device Sensor Manager
+ * Handles real hardware APIs (Geolocation, DeviceMotionEvent, DeviceOrientationEvent, Web Bluetooth)
+ * with robust error handling, iOS permission flows, real-time step peak detection,
+ * walking confidence scoring, and anti-fraud telemetry normalization.
+ * 
+ * NEVER generates fake sensor data. Missing sensors strictly report unavailable.
  */
+
+import { walkingVerificationService } from './walkingVerificationService';
 
 class SensorManager {
   constructor() {
     this.isListening = false;
     this.geoWatchId = null;
+    this.deviceInfo = walkingVerificationService.detectDeviceCapabilities();
     
     // Latest instantaneous readings
     this.currentReading = {
@@ -17,21 +23,28 @@ class SensorManager {
       gpsAccuracy: null,
       speed: 0,
       heading: 0,
-      accelerationX: 0,
-      accelerationY: 0,
-      accelerationZ: 9.81,
-      rotationAlpha: 0,
-      rotationBeta: 0,
-      rotationGamma: 0,
+      accelerationX: null,
+      accelerationY: null,
+      accelerationZ: null,
+      accelerationMagnitude: 0,
+      rotationAlpha: null,
+      rotationBeta: null,
+      rotationGamma: null,
+      stepCount: 0,
       cadence: 0,
-      activityRecognition: 'unavailable',
+      walkingConfidence: 0,
+      isWalkingVerified: false,
+      walkingStatus: 'Awaiting Journey Start',
       bluetoothSignals: [],
       sensorAvailability: {
         gps: false,
         accelerometer: false,
         gyroscope: false,
+        stepCounter: false,
         bluetooth: false,
         activityRecognition: false,
+        isMobile: this.deviceInfo.isMobile,
+        deviceType: this.deviceInfo.deviceType,
       },
     };
 
@@ -47,6 +60,7 @@ class SensorManager {
       headings: [],
       timestamps: [],
       cadenceSamples: [],
+      stepDeltas: [],
       bleSignals: [],
     };
 
@@ -60,13 +74,29 @@ class SensorManager {
     this.handleGeoError = this.handleGeoError.bind(this);
   }
 
+  /**
+   * Re-check initial support & probe device
+   */
   checkInitialSupport() {
+    this.deviceInfo = walkingVerificationService.detectDeviceCapabilities();
+
     if (typeof window !== 'undefined') {
       this.currentReading.sensorAvailability.gps = 'geolocation' in navigator;
       this.currentReading.sensorAvailability.accelerometer = 'DeviceMotionEvent' in window;
       this.currentReading.sensorAvailability.gyroscope = 'DeviceOrientationEvent' in window;
       this.currentReading.sensorAvailability.bluetooth = 'bluetooth' in navigator;
+      this.currentReading.sensorAvailability.stepCounter = this.deviceInfo.hasStepCounter;
+      this.currentReading.sensorAvailability.isMobile = this.deviceInfo.isMobile;
+      this.currentReading.sensorAvailability.deviceType = this.deviceInfo.deviceType;
     }
+  }
+
+  /**
+   * Get detected device capabilities
+   */
+  getDeviceCapabilities() {
+    this.checkInitialSupport();
+    return this.deviceInfo;
   }
 
   /**
@@ -111,9 +141,17 @@ class SensorManager {
     if (this.isListening) return;
     this.isListening = true;
     this.clearBuffer();
+    walkingVerificationService.resetJourney();
 
-    // Request permissions for mobile devices
-    await this.requestMotionPermissions();
+    this.currentReading.stepCount = 0;
+    this.currentReading.cadence = 0;
+    this.currentReading.walkingConfidence = 0;
+    this.currentReading.isWalkingVerified = false;
+
+    // Request permissions for mobile devices if needed
+    if (this.deviceInfo.isMobile) {
+      await this.requestMotionPermissions();
+    }
 
     // 1. Geolocation watchPosition
     if ('geolocation' in navigator) {
@@ -134,8 +172,8 @@ class SensorManager {
       }
     }
 
-    // 2. Device Motion
-    if (window.DeviceMotionEvent) {
+    // 2. Device Motion (Accelerometer & Step Peak Detection)
+    if (typeof window !== 'undefined' && window.DeviceMotionEvent) {
       try {
         window.addEventListener('devicemotion', this.handleMotion, false);
       } catch (err) {
@@ -143,8 +181,8 @@ class SensorManager {
       }
     }
 
-    // 3. Device Orientation
-    if (window.DeviceOrientationEvent) {
+    // 3. Device Orientation (Gyroscope)
+    if (typeof window !== 'undefined' && window.DeviceOrientationEvent) {
       try {
         window.addEventListener('deviceorientation', this.handleOrientation, false);
       } catch (err) {
@@ -185,6 +223,9 @@ class SensorManager {
     this.windowBuffer.speeds.push(speedKmh);
     this.windowBuffer.headings.push(heading || 0);
     this.windowBuffer.timestamps.push(Date.now());
+
+    // Update walking confidence
+    this.updateWalkingScore();
   }
 
   handleGeoError(error) {
@@ -199,29 +240,32 @@ class SensorManager {
     const acc = event.accelerationIncludingGravity || event.acceleration;
     const rot = event.rotationRate;
 
-    if (acc) {
-      this.currentReading.accelerationX = Number((acc.x || 0).toFixed(2));
-      this.currentReading.accelerationY = Number((acc.y || 0).toFixed(2));
-      this.currentReading.accelerationZ = Number((acc.z !== null ? acc.z : 9.81).toFixed(2));
+    if (acc && acc.x !== null && acc.y !== null) {
+      const ax = Number((acc.x || 0).toFixed(2));
+      const ay = Number((acc.y || 0).toFixed(2));
+      const az = Number((acc.z !== null && acc.z !== undefined ? acc.z : 9.81).toFixed(2));
+
+      this.currentReading.accelerationX = ax;
+      this.currentReading.accelerationY = ay;
+      this.currentReading.accelerationZ = az;
       this.currentReading.sensorAvailability.accelerometer = true;
 
-      this.windowBuffer.accelerationsX.push(this.currentReading.accelerationX);
-      this.windowBuffer.accelerationsY.push(this.currentReading.accelerationY);
-      this.windowBuffer.accelerationsZ.push(this.currentReading.accelerationZ);
+      // Real step detection from actual hardware accelerometer
+      const stepResult = walkingVerificationService.processAccelerometerReading({ x: ax, y: ay, z: az });
+      this.currentReading.stepCount = stepResult.stepCount;
+      this.currentReading.cadence = stepResult.cadence;
+      this.currentReading.accelerationMagnitude = stepResult.magnitude;
+      this.currentReading.sensorAvailability.stepCounter = true;
 
-      // Estimate dynamic cadence from vertical acceleration peak count
-      const mag = Math.sqrt(
-        Math.pow(this.currentReading.accelerationX, 2) +
-        Math.pow(this.currentReading.accelerationY, 2) +
-        Math.pow(this.currentReading.accelerationZ - 9.81, 2)
-      );
-      if (mag > 1.8) {
-        this.currentReading.cadence = Math.min(130, Math.max(90, Math.round(110 + (mag - 2) * 15)));
-        this.windowBuffer.cadenceSamples.push(this.currentReading.cadence);
+      this.windowBuffer.accelerationsX.push(ax);
+      this.windowBuffer.accelerationsY.push(ay);
+      this.windowBuffer.accelerationsZ.push(az);
+      if (stepResult.cadence > 0) {
+        this.windowBuffer.cadenceSamples.push(stepResult.cadence);
       }
     }
 
-    if (rot) {
+    if (rot && rot.alpha !== null) {
       this.currentReading.rotationAlpha = Number((rot.alpha || 0).toFixed(2));
       this.currentReading.rotationBeta = Number((rot.beta || 0).toFixed(2));
       this.currentReading.rotationGamma = Number((rot.gamma || 0).toFixed(2));
@@ -231,6 +275,8 @@ class SensorManager {
       this.windowBuffer.gyrosBeta.push(this.currentReading.rotationBeta);
       this.windowBuffer.gyrosGamma.push(this.currentReading.rotationGamma);
     }
+
+    this.updateWalkingScore();
   }
 
   handleOrientation(event) {
@@ -240,6 +286,30 @@ class SensorManager {
       this.currentReading.rotationGamma = Number((event.gamma || 0).toFixed(1));
       this.currentReading.sensorAvailability.gyroscope = true;
     }
+  }
+
+  updateWalkingScore() {
+    const res = walkingVerificationService.calculateWalkingConfidence({
+      deviceInfo: this.deviceInfo,
+      gpsSpeedKmh: this.currentReading.speed,
+      stepCount: this.currentReading.stepCount,
+      hasStepCounter: this.currentReading.sensorAvailability.stepCounter,
+      accelData: this.currentReading.sensorAvailability.accelerometer ? {
+        x: this.currentReading.accelerationX,
+        y: this.currentReading.accelerationY,
+        z: this.currentReading.accelerationZ,
+        magnitude: this.currentReading.accelerationMagnitude,
+      } : null,
+      gyroData: this.currentReading.sensorAvailability.gyroscope ? {
+        alpha: this.currentReading.rotationAlpha,
+        beta: this.currentReading.rotationBeta,
+        gamma: this.currentReading.rotationGamma,
+      } : null,
+    });
+
+    this.currentReading.walkingConfidence = res.confidenceScore;
+    this.currentReading.isWalkingVerified = res.isVerified;
+    this.currentReading.walkingStatus = res.statusLabel;
   }
 
   /**
@@ -261,7 +331,7 @@ class SensorManager {
         id: device.id,
         connected: device.gatt?.connected || false,
         timestamp: Date.now(),
-        rssi: -65, // typical proximate RSSI
+        rssi: -65,
         beaconId: device.name?.includes('BUS') ? 'BEACON-BUS-104' : (device.name?.includes('METRO') ? 'BEACON-METRO-09' : null),
         transportType: device.name?.includes('BUS') ? 'BUS' : (device.name?.includes('METRO') ? 'METRO' : 'UNKNOWN'),
       };
@@ -302,13 +372,16 @@ class SensorManager {
       gpsAccuracy: this.currentReading.gpsAccuracy,
       speed: this.currentReading.speed,
       heading: this.currentReading.heading,
+      stepCount: this.currentReading.stepCount,
+      walkingConfidence: this.currentReading.walkingConfidence,
+      isWalkingVerified: this.currentReading.isWalkingVerified,
       speeds: buffer.speeds.length > 0 ? buffer.speeds : [this.currentReading.speed],
-      accelerationsX: buffer.accelerationsX.length > 0 ? buffer.accelerationsX : [this.currentReading.accelerationX],
-      accelerationsY: buffer.accelerationsY.length > 0 ? buffer.accelerationsY : [this.currentReading.accelerationY],
-      accelerationsZ: buffer.accelerationsZ.length > 0 ? buffer.accelerationsZ : [this.currentReading.accelerationZ],
-      gyrosAlpha: buffer.gyrosAlpha.length > 0 ? buffer.gyrosAlpha : [this.currentReading.rotationAlpha],
-      gyrosBeta: buffer.gyrosBeta.length > 0 ? buffer.gyrosBeta : [this.currentReading.rotationBeta],
-      gyrosGamma: buffer.gyrosGamma.length > 0 ? buffer.gyrosGamma : [this.currentReading.rotationGamma],
+      accelerationsX: buffer.accelerationsX.length > 0 ? buffer.accelerationsX : (this.currentReading.accelerationX !== null ? [this.currentReading.accelerationX] : []),
+      accelerationsY: buffer.accelerationsY.length > 0 ? buffer.accelerationsY : (this.currentReading.accelerationY !== null ? [this.currentReading.accelerationY] : []),
+      accelerationsZ: buffer.accelerationsZ.length > 0 ? buffer.accelerationsZ : (this.currentReading.accelerationZ !== null ? [this.currentReading.accelerationZ] : []),
+      gyrosAlpha: buffer.gyrosAlpha.length > 0 ? buffer.gyrosAlpha : (this.currentReading.rotationAlpha !== null ? [this.currentReading.rotationAlpha] : []),
+      gyrosBeta: buffer.gyrosBeta.length > 0 ? buffer.gyrosBeta : (this.currentReading.rotationBeta !== null ? [this.currentReading.rotationBeta] : []),
+      gyrosGamma: buffer.gyrosGamma.length > 0 ? buffer.gyrosGamma : (this.currentReading.rotationGamma !== null ? [this.currentReading.rotationGamma] : []),
       headings: buffer.headings.length > 0 ? buffer.headings : [this.currentReading.heading],
       cadence: avgCadence,
       bleSignals: this.currentReading.bluetoothSignals,
@@ -329,6 +402,7 @@ class SensorManager {
       headings: [],
       timestamps: [],
       cadenceSamples: [],
+      stepDeltas: [],
       bleSignals: [],
     };
   }

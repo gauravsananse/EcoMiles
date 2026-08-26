@@ -65,7 +65,7 @@ export default function Navbar({
             }}
           >
             <Compass size={15} className="text-emerald-600" />
-            <span>AI Tracker</span>
+            <span>Green Journey</span>
           </button>
 
           <button
