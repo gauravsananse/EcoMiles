@@ -1,0 +1,33 @@
+{
+  "feature_names": [
+    "gps_speed_avg",
+    "gps_speed_var",
+    "gps_speed_max",
+    "gps_accel_rms",
+    "heading_change_rate",
+    "stop_frequency",
+    "accel_magnitude_mean",
+    "accel_magnitude_var",
+    "accel_rms",
+    "accel_jerk_mean",
+    "accel_peak_freq",
+    "gyro_magnitude_mean",
+    "gyro_magnitude_var",
+    "gyro_rms",
+    "cadence_steps_per_min",
+    "transit_corridor_overlap",
+    "dwell_time_ratio",
+    "ble_beacon_proximity"
+  ],
+  "classes": [
+    "walking",
+    "cycling",
+    "bus",
+    "metro",
+    "car",
+    "scooter",
+    "stationary"
+  ],
+  "rule_based": true,
+  "version": "1.0.0"
+}
