@@ -11,6 +11,8 @@ import {
   Flame,
   Leaf
 } from 'lucide-react';
+import LanguageSelector from './LanguageSelector';
+import { useTranslation } from '../i18n/I18nContext';
 
 export default function Navbar({
   user,
@@ -19,6 +21,8 @@ export default function Navbar({
   onLogout,
   onOpenAuth,
 }) {
+  const { t } = useTranslation();
+
   return (
     <header className="navbar">
       <div className="navbar-inner" style={{ flexWrap: 'wrap', gap: '0.75rem' }}>
@@ -28,9 +32,9 @@ export default function Navbar({
             <Zap size={22} strokeWidth={2.5} />
           </div>
           <div>
-            <div style={{ lineHeight: 1.1, fontSize: '1.15rem' }}>Green Credits</div>
+            <div style={{ lineHeight: 1.1, fontSize: '1.15rem' }}>{t('nav.brandTitle')}</div>
             <div style={{ fontSize: '0.7rem', color: '#059669', fontWeight: 700, letterSpacing: '0.06em' }}>
-              SMART MOBILITY PLATFORM
+              {t('nav.brandSubtitle')}
             </div>
           </div>
         </div>
@@ -65,7 +69,7 @@ export default function Navbar({
             }}
           >
             <Compass size={15} className="text-emerald-600" />
-            <span>Green Journey</span>
+            <span>{t('nav.tabTracker')}</span>
           </button>
 
           <button
@@ -87,7 +91,7 @@ export default function Navbar({
             }}
           >
             <MapPin size={15} className="text-emerald-600" />
-            <span>Smart Routes</span>
+            <span>{t('nav.tabRoutes')}</span>
           </button>
 
           <button
@@ -109,7 +113,7 @@ export default function Navbar({
             }}
           >
             <Building2 size={15} className="text-emerald-600" />
-            <span>City Network</span>
+            <span>{t('nav.tabCity')}</span>
           </button>
 
           <button
@@ -131,7 +135,7 @@ export default function Navbar({
             }}
           >
             <Gift size={15} className="text-amber-500" />
-            <span>Rewards</span>
+            <span>{t('nav.tabRewards')}</span>
           </button>
 
           <button
@@ -153,12 +157,15 @@ export default function Navbar({
             }}
           >
             <ShieldCheck size={15} className="text-emerald-600" />
-            <span>EV Pass</span>
+            <span>{t('nav.tabEv')}</span>
           </button>
         </nav>
 
-        {/* User & Points Balances */}
-        <div className="nav-actions">
+        {/* User, Points Balances & Language Selector */}
+        <div className="nav-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {/* Multilingual 🌐 Globe Selector */}
+          <LanguageSelector />
+
           {user ? (
             <>
               {/* Dual-Economy Points Pill */}
@@ -174,14 +181,14 @@ export default function Navbar({
                 fontSize: '0.8rem',
                 fontWeight: 700,
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '3px', color: '#ea580c' }} title="Fitness Points">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '3px', color: '#ea580c' }} title={t('nav.fitnessPointsTitle')}>
                   <Flame size={14} fill="#ea580c" />
-                  <span>{user.fitnessPoints ?? 0} FP</span>
+                  <span>{user.fitnessPoints ?? 0} {t('nav.fitnessPoints')}</span>
                 </div>
                 <div style={{ width: '1px', height: '14px', background: 'var(--slate-200)' }} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: '3px', color: '#059669' }} title="Green Credits">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '3px', color: '#059669' }} title={t('nav.greenCreditsTitle')}>
                   <Leaf size={14} fill="#059669" />
-                  <span>{user.greenCredits ?? 0} GP</span>
+                  <span>{user.greenCredits ?? 0} {t('nav.greenCredits')}</span>
                 </div>
               </div>
 
@@ -194,7 +201,7 @@ export default function Navbar({
                 onClick={onLogout}
                 className="btn btn-secondary"
                 style={{ padding: '0.35rem 0.65rem', fontSize: '0.8rem' }}
-                title="Log out"
+                title={t('nav.logout')}
               >
                 <LogOut size={14} />
               </button>
@@ -206,14 +213,14 @@ export default function Navbar({
                 className="btn btn-secondary"
                 style={{ padding: '0.4rem 0.85rem', fontSize: '0.82rem' }}
               >
-                Sign In
+                {t('nav.signIn')}
               </button>
               <button
                 onClick={() => onOpenAuth('register')}
                 className="btn btn-primary"
                 style={{ padding: '0.4rem 0.85rem', fontSize: '0.82rem' }}
               >
-                Register
+                {t('nav.register')}
               </button>
             </div>
           )}

@@ -189,8 +189,8 @@ class FraudDetectionService {
             sensorWindow.latitude,
             sensorWindow.longitude
           );
-          const timeDeltaSec = (Date.now() - new Date(lastPt.timestamp).getTime()) / 1000;
-          if (timeDeltaSec > 0 && timeDeltaSec < 10) {
+          const timeDeltaSec = Math.max(0.5, (Date.now() - new Date(lastPt.timestamp).getTime()) / 1000);
+          if (distMeters > 150 && timeDeltaSec < 10) {
             const calculatedSpeedKmh = (distMeters / timeDeltaSec) * 3.6;
             if (calculatedSpeedKmh > 200.0) {
               fraudScore += 90;

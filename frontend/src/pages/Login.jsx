@@ -1,19 +1,21 @@
 import React, { useState } from 'react';
 import { Mail, Lock, Loader2, AlertCircle, X, Zap } from 'lucide-react';
 import { api } from '../services/api';
+import { useTranslation } from '../i18n/I18nContext';
 
 export default function Login({ isOpen, onClose, onSwitchToRegister, onSuccess }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const { t } = useTranslation();
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!email.trim() || !password.trim()) {
-      setError('Please enter both email and password.');
+      setError(t('auth.errEmailPass'));
       return;
     }
 
@@ -27,7 +29,7 @@ export default function Login({ isOpen, onClose, onSwitchToRegister, onSuccess }
         onClose();
       }
     } catch (err) {
-      setError(err.data?.error || err.message || 'Login failed. Please check your credentials.');
+      setError(err.data?.error || err.message || t('auth.errLoginFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -57,6 +59,7 @@ export default function Login({ isOpen, onClose, onSwitchToRegister, onSuccess }
             cursor: 'pointer',
             color: 'var(--slate-400)',
           }}
+          aria-label={t('modals.close')}
         >
           <X size={20} />
         </button>
@@ -76,10 +79,10 @@ export default function Login({ isOpen, onClose, onSwitchToRegister, onSuccess }
             <Zap size={24} />
           </div>
           <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--slate-900)' }}>
-            Welcome Back
+            {t('auth.loginTitle')}
           </h2>
           <p style={{ fontSize: '0.85rem', color: 'var(--slate-500)', marginTop: '0.25rem' }}>
-            Sign in to manage and verify your Electric Vehicles
+            {t('auth.loginSubtitle')}
           </p>
         </div>
 
@@ -104,13 +107,13 @@ export default function Login({ isOpen, onClose, onSwitchToRegister, onSuccess }
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div>
             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: 'var(--slate-700)', marginBottom: '0.35rem' }}>
-              Email Address
+              {t('auth.email')}
             </label>
             <div style={{ position: 'relative' }}>
               <Mail size={17} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--slate-400)' }} />
               <input
                 type="email"
-                placeholder="name@example.com"
+                placeholder={t('auth.emailPlaceholder')}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -128,13 +131,13 @@ export default function Login({ isOpen, onClose, onSwitchToRegister, onSuccess }
 
           <div>
             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: 'var(--slate-700)', marginBottom: '0.35rem' }}>
-              Password
+              {t('auth.password')}
             </label>
             <div style={{ position: 'relative' }}>
               <Lock size={17} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--slate-400)' }} />
               <input
                 type="password"
-                placeholder="••••••••"
+                placeholder={t('auth.passwordPlaceholder')}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -159,16 +162,16 @@ export default function Login({ isOpen, onClose, onSwitchToRegister, onSuccess }
             {isLoading ? (
               <>
                 <Loader2 size={18} className="animate-spin" />
-                <span>Signing in...</span>
+                <span>{t('auth.signingIn')}</span>
               </>
             ) : (
-              <span>Sign In</span>
+              <span>{t('auth.signInBtn')}</span>
             )}
           </button>
         </form>
 
         <div style={{ textAlign: 'center', marginTop: '1.25rem', fontSize: '0.85rem', color: 'var(--slate-500)' }}>
-          Don't have an account?{' '}
+          {t('auth.noAccountPrompt')}{' '}
           <button
             onClick={onSwitchToRegister}
             style={{
@@ -180,7 +183,7 @@ export default function Login({ isOpen, onClose, onSwitchToRegister, onSuccess }
               textDecoration: 'underline',
             }}
           >
-            Register here
+            {t('auth.registerHere')}
           </button>
         </div>
       </div>

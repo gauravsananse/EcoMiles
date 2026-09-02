@@ -15,8 +15,11 @@ import VerificationStatus from '../components/VerificationStatus';
 import RegisteredVehicle from '../components/RegisteredVehicle';
 import QRVehicleBinding from '../components/QRVehicleBinding';
 import { api } from '../services/api';
+import { useTranslation } from '../i18n/I18nContext';
 
 export default function EVRegistration({ user, onOpenAuth }) {
+  const { t } = useTranslation();
+
   // Verification State Machine
   // 'IDLE' | 'VERIFYING' | 'EV_CONFIRMED' | 'REGISTERED' | 'ERROR'
   const [viewState, setViewState] = useState('IDLE');
@@ -84,7 +87,7 @@ export default function EVRegistration({ user, onOpenAuth }) {
       console.error('Vehicle verification failed:', err);
       const errCode = err.errorState || (err.status === 409 ? 'ALREADY_REGISTERED' : 'API_ERROR');
       setErrorState(errCode);
-      setErrorMessage(err.data?.error || err.message || 'Failed to verify vehicle.');
+      setErrorMessage(err.data?.error || err.message || t('common.error'));
       setErrorVehicleData(err.data?.vehicleData || null);
       setViewState('ERROR');
     } finally {
@@ -101,61 +104,52 @@ export default function EVRegistration({ user, onOpenAuth }) {
 
     setIsRegistering(true);
     setErrorState(null);
+    setErrorMessage('');
 
     try {
-      const res = await api.registerVehicle({
-        registrationNumber: vehiclePayload.registrationNumber,
-        manufacturer: vehiclePayload.manufacturer,
-        model: vehiclePayload.model,
-        fuelType: vehiclePayload.fuelType,
-        vehicleClass: vehiclePayload.vehicleClass,
-        maskedOwnerName: vehiclePayload.ownerName,
-        registrationDate: vehiclePayload.registrationDate,
-        verificationSource: vehiclePayload.verificationSource,
-      });
-
+      const res = await api.registerEV(vehiclePayload);
       if (res.success && res.vehicle) {
         setMyBoundVehicle(res.vehicle);
         setViewState('REGISTERED');
-        setShowQRModal(true); // Automatically open QR Pass upon registration
+        setShowQRModal(true);
       }
     } catch (err) {
-      console.error('Vehicle registration failed:', err);
-      const errCode = err.errorState || (err.status === 409 ? 'ALREADY_REGISTERED' : 'API_ERROR');
-      setErrorState(errCode);
-      setErrorMessage(err.data?.error || err.message || 'Failed to register vehicle.');
+      console.error('Failed to register EV:', err);
+      setErrorState('API_ERROR');
+      setErrorMessage(err.data?.error || err.message || t('common.error'));
       setViewState('ERROR');
     } finally {
       setIsRegistering(false);
     }
   };
 
-  // 3. Regenerate QR Code
+  // 3. Regenerate QR Token
   const handleRegenerateQR = async () => {
     if (!myBoundVehicle) return;
     setIsRegeneratingQR(true);
     try {
-      const res = await api.regenerateQR(myBoundVehicle.id || myBoundVehicle._id);
-      if (res.success) {
-        setMyBoundVehicle((prev) => ({
-          ...prev,
-          qrToken: res.qrToken,
-          qrCreatedAt: res.qrCreatedAt,
-          qrDataURL: res.qrDataURL,
-        }));
+      const res = await api.regenerateVehicleQR(myBoundVehicle.registrationNumber);
+      if (res.success && res.vehicle) {
+        setMyBoundVehicle(res.vehicle);
       }
     } catch (err) {
-      console.error('Failed to regenerate QR code:', err);
+      console.error('Failed to regenerate QR:', err);
     } finally {
       setIsRegeneratingQR(false);
     }
   };
 
-  // 4. Unlink Vehicle
-  const handleUnlinkVehicle = async (vehicleId) => {
+  // 4. Unlink / Delete Registration
+  const handleUnlinkVehicle = async () => {
+    if (!myBoundVehicle) return;
+    const confirm = window.confirm(
+      `Are you sure you want to unlink vehicle ${myBoundVehicle.registrationNumber}? This will revoke the active QR code.`
+    );
+    if (!confirm) return;
+
     setIsUnlinking(true);
     try {
-      const res = await api.unlinkVehicle(vehicleId);
+      const res = await api.unlinkVehicle(myBoundVehicle.registrationNumber);
       if (res.success) {
         setMyBoundVehicle(null);
         setVerifiedVehicleData(null);
@@ -183,11 +177,11 @@ export default function EVRegistration({ user, onOpenAuth }) {
       <div className="page-header">
         <div className="badge-tag">
           <Zap size={14} fill="#059669" color="#059669" />
-          <span>Green Credits EV Mobility</span>
+          <span>{t('ev.badge')}</span>
         </div>
-        <h1 className="page-title">Verify Your Electric Vehicle</h1>
+        <h1 className="page-title">{t('ev.title')}</h1>
         <p className="page-subtitle">
-          Register your EV once and securely bind it to your Green Credits account.
+          {t('ev.subtitle')}
         </p>
       </div>
 
@@ -211,10 +205,10 @@ export default function EVRegistration({ user, onOpenAuth }) {
           <CheckCircle2 size={24} className="text-emerald-600" style={{ flexShrink: 0, marginTop: '2px' }} />
           <div>
             <div style={{ fontWeight: 800, fontSize: '1.1rem', marginBottom: '0.25rem' }}>
-              EV Successfully Registered
+              {t('ev.vehicleVerified')}
             </div>
             <div style={{ fontSize: '0.9rem', lineHeight: 1.5 }}>
-              ✓ Vehicle Verified &nbsp;|&nbsp; ✓ EV Type Confirmed &nbsp;|&nbsp; ✓ Vehicle Bound to Your Account
+              ✓ {t('ev.vehicleVerified')} &nbsp;|&nbsp; ✓ {t('ev.electricVehicle')} &nbsp;|&nbsp; ✓ {t('ev.registeredVehicle')}
             </div>
             <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem' }}>
               <button
@@ -223,7 +217,7 @@ export default function EVRegistration({ user, onOpenAuth }) {
                 style={{ padding: '0.4rem 0.85rem', fontSize: '0.85rem' }}
               >
                 <QrCode size={15} />
-                <span>View Vehicle QR Pass</span>
+                <span>{t('ev.qrPass')}</span>
               </button>
             </div>
           </div>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { CheckCircle2, Shield, Calendar, User, Truck, Fuel, ArrowRight, Loader2 } from 'lucide-react';
+import { useTranslation } from '../i18n/I18nContext';
 
 export default function VehicleDetails({
   vehicleData,
@@ -8,6 +9,7 @@ export default function VehicleDetails({
   isLoggedIn,
   onRequireAuth,
 }) {
+  const { t } = useTranslation();
   if (!vehicleData) return null;
 
   return (
@@ -15,20 +17,20 @@ export default function VehicleDetails({
       <div style={{ textAlign: 'center' }}>
         <div className="verify-badge-top">
           <CheckCircle2 size={16} />
-          <span>✓ VEHICLE VERIFIED</span>
+          <span>{t('ev.vehicleVerified')}</span>
         </div>
       </div>
 
       <div className="grid-details">
         <div className="detail-item">
-          <div className="detail-label">Registration</div>
+          <div className="detail-label">{t('ev.registrationNo')}</div>
           <div className="detail-value mono" style={{ color: 'var(--primary-700)' }}>
             {vehicleData.registrationNumber}
           </div>
         </div>
 
         <div className="detail-item">
-          <div className="detail-label">Vehicle Type</div>
+          <div className="detail-label">{t('ev.vehicleType')}</div>
           <div className="detail-value" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             <span style={{
               display: 'inline-block',
@@ -37,43 +39,43 @@ export default function VehicleDetails({
               borderRadius: '50%',
               backgroundColor: '#10b981',
             }}></span>
-            Electric Vehicle (EV)
+            {t('ev.electricVehicle')}
           </div>
         </div>
 
         <div className="detail-item">
-          <div className="detail-label">Manufacturer</div>
+          <div className="detail-label">{t('ev.manufacturer')}</div>
           <div className="detail-value">{vehicleData.manufacturer || 'N/A'}</div>
         </div>
 
         <div className="detail-item">
-          <div className="detail-label">Model</div>
+          <div className="detail-label">{t('ev.model')}</div>
           <div className="detail-value">{vehicleData.model || 'N/A'}</div>
         </div>
 
         <div className="detail-item">
-          <div className="detail-label">Fuel Classification</div>
+          <div className="detail-label">{t('ev.fuelType')}</div>
           <div className="detail-value" style={{ color: '#059669', fontWeight: 800 }}>
             {vehicleData.fuelType}
           </div>
         </div>
 
         <div className="detail-item">
-          <div className="detail-label">Owner (Masked)</div>
+          <div className="detail-label">{t('ev.ownerMasked')}</div>
           <div className="detail-value mono" style={{ fontSize: '0.95rem' }}>
             {vehicleData.ownerName || 'Registered Owner'}
           </div>
         </div>
 
         <div className="detail-item">
-          <div className="detail-label">Registration Date</div>
+          <div className="detail-label">{t('ev.registrationDate')}</div>
           <div className="detail-value" style={{ fontSize: '0.95rem' }}>
             {vehicleData.registrationDate || 'N/A'}
           </div>
         </div>
 
         <div className="detail-item">
-          <div className="detail-label">Verification Source</div>
+          <div className="detail-label">{t('ev.verificationSource')}</div>
           <div className="detail-value" style={{ fontSize: '0.9rem', color: 'var(--slate-700)' }}>
             {vehicleData.verificationSource}
           </div>
@@ -89,7 +91,7 @@ export default function VehicleDetails({
         fontSize: '0.85rem',
         color: 'var(--primary-900)',
       }}>
-        <strong>EV Qualification Confirmed:</strong> This vehicle satisfies all Green Credits criteria for electric mobility. Ready for account binding and QR token generation.
+        {t('ev.qualificationNotice')}
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center' }}>
@@ -103,11 +105,11 @@ export default function VehicleDetails({
             {isRegistering ? (
               <>
                 <Loader2 size={18} className="animate-spin" />
-                <span>Binding EV to account...</span>
+                <span>{t('ev.binding')}</span>
               </>
             ) : (
               <>
-                <span>Register This EV</span>
+                <span>{t('ev.bindVehicle')}</span>
                 <ArrowRight size={18} />
               </>
             )}
@@ -118,7 +120,7 @@ export default function VehicleDetails({
             className="btn btn-primary btn-lg"
             style={{ width: '100%' }}
           >
-            <span>Sign In to Register This EV</span>
+            <span>{t('rewards.signInToRedeem')}</span>
             <ArrowRight size={18} />
           </button>
         )}

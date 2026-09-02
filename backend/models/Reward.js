@@ -12,6 +12,10 @@ const rewardSchema = new mongoose.Schema({
     required: true,
     index: true,
   },
+  subcategory: {
+    type: String,
+    default: 'General',
+  },
   partner: {
     type: String,
     required: true,
@@ -35,6 +39,23 @@ const rewardSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  voucherCode: {
+    type: String,
+    default: 'GREENCREDIT',
+  },
+  partnerUrl: {
+    type: String,
+    required: true,
+    default: 'https://in.fastandup.com/',
+  },
+  buttonText: {
+    type: String,
+    default: 'Shop Now',
+  },
+  expiryDate: {
+    type: String,
+    default: '30 Sep 2026',
+  },
   badgeText: {
     type: String,
     default: 'Popular',
@@ -50,6 +71,10 @@ const rewardSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true,
+  },
+  partnerClicksCount: {
+    type: Number,
+    default: 0,
   },
   createdAt: {
     type: Date,

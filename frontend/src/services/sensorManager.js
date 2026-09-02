@@ -14,6 +14,13 @@ class SensorManager {
     this.isListening = false;
     this.geoWatchId = null;
     this.deviceInfo = walkingVerificationService.detectDeviceCapabilities();
+    this.onUpdateCallback = null;
+
+    // Track last orientation event for angular velocity computation if rotationRate missing
+    this.lastOrientationTime = 0;
+    this.lastAlpha = null;
+    this.lastBeta = null;
+    this.lastGamma = null;
     
     // Latest instantaneous readings
     this.currentReading = {
@@ -22,14 +29,17 @@ class SensorManager {
       longitude: null,
       gpsAccuracy: null,
       speed: 0,
+      distanceKm: 0,
       heading: 0,
       accelerationX: null,
       accelerationY: null,
       accelerationZ: null,
       accelerationMagnitude: 0,
-      rotationAlpha: null,
-      rotationBeta: null,
-      rotationGamma: null,
+      dynamicMagnitude: 0,
+      rotationAlpha: null, // Euler angle (0 - 360 deg)
+      rotationBeta: null,  // Euler angle (-180 - 180 deg)
+      rotationGamma: null, // Euler angle (-90 - 90 deg)
+      rotationalVelocity: 0, // Angular rate (deg/s)
       stepCount: 0,
       cadence: 0,
       walkingConfidence: 0,
@@ -75,16 +85,36 @@ class SensorManager {
   }
 
   /**
+   * Set callback for real-time sensor updates (called on every hardware tick)
+   */
+  setUpdateCallback(cb) {
+    this.onUpdateCallback = cb;
+  }
+
+  /**
+   * Set active AI transport mode to lock vehicular step counting
+   */
+  setTransportMode(mode) {
+    walkingVerificationService.setTransportMode(mode);
+    this.updateWalkingScore();
+  }
+
+  /**
    * Re-check initial support & probe device
    */
   checkInitialSupport() {
     this.deviceInfo = walkingVerificationService.detectDeviceCapabilities();
 
     if (typeof window !== 'undefined') {
-      this.currentReading.sensorAvailability.gps = 'geolocation' in navigator;
-      this.currentReading.sensorAvailability.accelerometer = 'DeviceMotionEvent' in window;
-      this.currentReading.sensorAvailability.gyroscope = 'DeviceOrientationEvent' in window;
-      this.currentReading.sensorAvailability.bluetooth = 'bluetooth' in navigator;
+      const hasGeo = 'geolocation' in navigator;
+      const hasMotion = 'DeviceMotionEvent' in window || typeof window.DeviceMotionEvent !== 'undefined';
+      const hasOrient = 'DeviceOrientationEvent' in window || typeof window.DeviceOrientationEvent !== 'undefined';
+      const hasBle = 'bluetooth' in navigator;
+
+      this.currentReading.sensorAvailability.gps = hasGeo;
+      this.currentReading.sensorAvailability.accelerometer = hasMotion;
+      this.currentReading.sensorAvailability.gyroscope = hasOrient;
+      this.currentReading.sensorAvailability.bluetooth = hasBle;
       this.currentReading.sensorAvailability.stepCounter = this.deviceInfo.hasStepCounter;
       this.currentReading.sensorAvailability.isMobile = this.deviceInfo.isMobile;
       this.currentReading.sensorAvailability.deviceType = this.deviceInfo.deviceType;
@@ -100,7 +130,7 @@ class SensorManager {
   }
 
   /**
-   * Request iOS 13+ permission for Motion and Orientation
+   * Request iOS 13+ permission for Motion and Orientation synchronously in touch event
    */
   async requestMotionPermissions() {
     let motionGranted = false;
@@ -143,10 +173,16 @@ class SensorManager {
     this.clearBuffer();
     walkingVerificationService.resetJourney();
 
+    this.currentReading.distanceKm = 0;
+    this.currentReading.speed = 0;
     this.currentReading.stepCount = 0;
     this.currentReading.cadence = 0;
     this.currentReading.walkingConfidence = 0;
     this.currentReading.isWalkingVerified = false;
+    this.currentReading.latitude = null;
+    this.currentReading.longitude = null;
+    this.currentReading.gpsAccuracy = null;
+    this.lastOrientationTime = 0;
 
     // Request permissions for mobile devices if needed
     if (this.deviceInfo.isMobile) {
@@ -165,26 +201,27 @@ class SensorManager {
             timeout: 10000,
           }
         );
-        this.currentReading.sensorAvailability.gps = true;
       } catch (err) {
         console.warn('[SensorManager] Geolocation watchPosition failed:', err.message);
         this.currentReading.sensorAvailability.gps = false;
       }
+    } else {
+      this.currentReading.sensorAvailability.gps = false;
     }
 
     // 2. Device Motion (Accelerometer & Step Peak Detection)
     if (typeof window !== 'undefined' && window.DeviceMotionEvent) {
       try {
-        window.addEventListener('devicemotion', this.handleMotion, false);
+        window.addEventListener('devicemotion', this.handleMotion, { passive: true });
       } catch (err) {
         console.warn('[SensorManager] devicemotion listener error:', err.message);
       }
     }
 
-    // 3. Device Orientation (Gyroscope)
+    // 3. Device Orientation (Gyroscope / Compass)
     if (typeof window !== 'undefined' && window.DeviceOrientationEvent) {
       try {
-        window.addEventListener('deviceorientation', this.handleOrientation, false);
+        window.addEventListener('deviceorientation', this.handleOrientation, { passive: true });
       } catch (err) {
         console.warn('[SensorManager] deviceorientation listener error:', err.message);
       }
@@ -201,60 +238,135 @@ class SensorManager {
       this.geoWatchId = null;
     }
     if (typeof window !== 'undefined') {
-      window.removeEventListener('devicemotion', this.handleMotion, false);
-      window.removeEventListener('deviceorientation', this.handleOrientation, false);
+      window.removeEventListener('devicemotion', this.handleMotion);
+      window.removeEventListener('deviceorientation', this.handleOrientation);
     }
     this.clearBuffer();
   }
 
+  calculateBearing(lat1, lon1, lat2, lon2) {
+    if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const toDeg = (rad) => (rad * 180) / Math.PI;
+    const φ1 = toRad(lat1);
+    const φ2 = toRad(lat2);
+    const Δλ = toRad(lon2 - lon1);
+
+    const y = Math.sin(Δλ) * Math.cos(φ2);
+    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    const θ = Math.atan2(y, x);
+    return Math.round((toDeg(θ) + 360) % 360);
+  }
+
   handleGeoSuccess(position) {
     const { latitude, longitude, accuracy, speed, heading } = position.coords;
-    const speedKmh = speed !== null && speed >= 0 ? speed * 3.6 : 0;
+
+    // Calculate dynamic movement bearing
+    let calculatedHeading = this.currentReading.heading || 0;
+    if (heading !== null && heading !== undefined && !isNaN(heading) && heading > 0) {
+      calculatedHeading = Math.round(heading);
+    } else if (this.currentReading.latitude && this.currentReading.longitude) {
+      const prevLat = this.currentReading.latitude;
+      const prevLng = this.currentReading.longitude;
+      const distM = walkingVerificationService.haversineDistance(prevLat, prevLng, latitude, longitude) * 1000;
+      if (distM >= 1.5) {
+        const b = this.calculateBearing(prevLat, prevLng, latitude, longitude);
+        if (b !== null) {
+          calculatedHeading = b;
+        }
+      }
+    }
+
+    const gpsResult = walkingVerificationService.processGpsPosition({
+      latitude,
+      longitude,
+      accuracy,
+      speed,
+      timestamp: position.timestamp || Date.now(),
+    });
 
     this.currentReading.latitude = latitude;
     this.currentReading.longitude = longitude;
-    this.currentReading.gpsAccuracy = accuracy;
-    this.currentReading.speed = Number(speedKmh.toFixed(1));
-    this.currentReading.heading = heading || 0;
+    this.currentReading.gpsAccuracy = Math.round(accuracy || 10);
+    this.currentReading.speed = gpsResult.speedKmh;
+    this.currentReading.distanceKm = gpsResult.distanceKm;
+    this.currentReading.heading = calculatedHeading;
     this.currentReading.timestamp = position.timestamp || Date.now();
     this.currentReading.sensorAvailability.gps = true;
+    this.currentReading.gpsStatus = accuracy && accuracy > 35 ? 'POOR' : 'ACTIVE';
 
     // Push to buffer
-    this.windowBuffer.speeds.push(speedKmh);
-    this.windowBuffer.headings.push(heading || 0);
+    this.windowBuffer.speeds.push(gpsResult.speedKmh);
+    this.windowBuffer.headings.push(calculatedHeading);
     this.windowBuffer.timestamps.push(Date.now());
 
     // Update walking confidence
     this.updateWalkingScore();
+
+    if (this.onUpdateCallback) {
+      this.onUpdateCallback(this.getCurrentReading());
+    }
   }
 
   handleGeoError(error) {
-    console.warn('[SensorManager] Geolocation error code:', error.code, error.message);
+    console.warn('[SensorManager] Geolocation error:', error.code, error.message);
+    this.currentReading.sensorAvailability.gps = false;
     if (error.code === 1) {
-      // Permission denied
-      this.currentReading.sensorAvailability.gps = false;
+      this.currentReading.gpsStatus = 'PERMISSION_DENIED';
+    } else if (error.code === 2) {
+      this.currentReading.gpsStatus = 'UNAVAILABLE';
+    } else if (error.code === 3) {
+      this.currentReading.gpsStatus = 'TIMEOUT';
+    } else {
+      this.currentReading.gpsStatus = 'ERROR';
+    }
+    this.updateWalkingScore();
+
+    if (this.onUpdateCallback) {
+      this.onUpdateCallback(this.getCurrentReading());
     }
   }
 
   handleMotion(event) {
-    const acc = event.accelerationIncludingGravity || event.acceleration;
+    // Determine raw accelerometer inputs
+    const hasLinear = event.acceleration && (
+      event.acceleration.x !== null ||
+      event.acceleration.y !== null ||
+      event.acceleration.z !== null
+    );
+
+    // Prefer accelerationIncludingGravity for full 3D vector & Earth gravity separation
+    const hasGrav = event.accelerationIncludingGravity && (
+      event.accelerationIncludingGravity.x !== null ||
+      event.accelerationIncludingGravity.y !== null ||
+      event.accelerationIncludingGravity.z !== null
+    );
+
+    const acc = hasGrav ? event.accelerationIncludingGravity : event.acceleration;
     const rot = event.rotationRate;
 
-    if (acc && acc.x !== null && acc.y !== null) {
+    if (acc && (acc.x !== null || acc.y !== null || acc.z !== null)) {
       const ax = Number((acc.x || 0).toFixed(2));
       const ay = Number((acc.y || 0).toFixed(2));
-      const az = Number((acc.z !== null && acc.z !== undefined ? acc.z : 9.81).toFixed(2));
+      const az = Number((acc.z !== null && acc.z !== undefined ? acc.z : (hasLinear ? 0 : 9.81)).toFixed(2));
 
       this.currentReading.accelerationX = ax;
       this.currentReading.accelerationY = ay;
       this.currentReading.accelerationZ = az;
       this.currentReading.sensorAvailability.accelerometer = true;
 
-      // Real step detection from actual hardware accelerometer
-      const stepResult = walkingVerificationService.processAccelerometerReading({ x: ax, y: ay, z: az });
+      // Real step detection from hardware accelerometer
+      const stepResult = walkingVerificationService.processAccelerometerReading({
+        x: ax,
+        y: ay,
+        z: az,
+        isLinear: Boolean(hasLinear && !hasGrav),
+      }, event.timeStamp ? (Date.now()) : Date.now());
+
       this.currentReading.stepCount = stepResult.stepCount;
       this.currentReading.cadence = stepResult.cadence;
       this.currentReading.accelerationMagnitude = stepResult.magnitude;
+      this.currentReading.dynamicMagnitude = stepResult.dynamicMagnitude;
       this.currentReading.sensorAvailability.stepCounter = true;
 
       this.windowBuffer.accelerationsX.push(ax);
@@ -265,26 +377,66 @@ class SensorManager {
       }
     }
 
-    if (rot && rot.alpha !== null) {
-      this.currentReading.rotationAlpha = Number((rot.alpha || 0).toFixed(2));
-      this.currentReading.rotationBeta = Number((rot.beta || 0).toFixed(2));
-      this.currentReading.rotationGamma = Number((rot.gamma || 0).toFixed(2));
+    // Hardware Gyroscope (Rotation Rate in deg/s)
+    if (rot && (rot.alpha !== null || rot.beta !== null || rot.gamma !== null)) {
+      const rAlpha = Number((rot.alpha || 0).toFixed(2));
+      const rBeta = Number((rot.beta || 0).toFixed(2));
+      const rGamma = Number((rot.gamma || 0).toFixed(2));
+      const rotVelocity = Math.sqrt(rAlpha * rAlpha + rBeta * rBeta + rGamma * rGamma);
+
+      this.currentReading.rotationalVelocity = Number(rotVelocity.toFixed(1));
       this.currentReading.sensorAvailability.gyroscope = true;
 
-      this.windowBuffer.gyrosAlpha.push(this.currentReading.rotationAlpha);
-      this.windowBuffer.gyrosBeta.push(this.currentReading.rotationBeta);
-      this.windowBuffer.gyrosGamma.push(this.currentReading.rotationGamma);
+      this.windowBuffer.gyrosAlpha.push(rAlpha);
+      this.windowBuffer.gyrosBeta.push(rBeta);
+      this.windowBuffer.gyrosGamma.push(rGamma);
     }
 
     this.updateWalkingScore();
+
+    if (this.onUpdateCallback) {
+      this.onUpdateCallback(this.getCurrentReading());
+    }
   }
 
   handleOrientation(event) {
-    if (event.alpha !== null) {
-      this.currentReading.rotationAlpha = Number((event.alpha || 0).toFixed(1));
-      this.currentReading.rotationBeta = Number((event.beta || 0).toFixed(1));
-      this.currentReading.rotationGamma = Number((event.gamma || 0).toFixed(1));
+    if (event.alpha !== null || event.beta !== null || event.gamma !== null) {
+      const alpha = Number((event.alpha || 0).toFixed(1));
+      const beta = Number((event.beta || 0).toFixed(1));
+      const gamma = Number((event.gamma || 0).toFixed(1));
+
+      this.currentReading.rotationAlpha = alpha;
+      this.currentReading.rotationBeta = beta;
+      this.currentReading.rotationGamma = gamma;
       this.currentReading.sensorAvailability.gyroscope = true;
+
+      // Numerical differentiation of angles to compute rotational velocity if rotationRate missing
+      const now = Date.now();
+      if (this.lastOrientationTime > 0 && this.lastAlpha !== null) {
+        const dt = (now - this.lastOrientationTime) / 1000;
+        if (dt > 0.01 && dt < 0.5) {
+          let dAlpha = Math.abs(alpha - this.lastAlpha);
+          dAlpha = Math.min(dAlpha, 360 - dAlpha);
+          const dBeta = Math.abs(beta - this.lastBeta);
+          const dGamma = Math.abs(gamma - this.lastGamma);
+          const vel = Math.sqrt(dAlpha * dAlpha + dBeta * dBeta + dGamma * dGamma) / dt;
+
+          if (this.currentReading.rotationalVelocity === 0 || this.currentReading.rotationalVelocity === null) {
+            this.currentReading.rotationalVelocity = Number(Math.min(360, vel).toFixed(1));
+          }
+        }
+      }
+
+      this.lastOrientationTime = now;
+      this.lastAlpha = alpha;
+      this.lastBeta = beta;
+      this.lastGamma = gamma;
+
+      this.updateWalkingScore();
+
+      if (this.onUpdateCallback) {
+        this.onUpdateCallback(this.getCurrentReading());
+      }
     }
   }
 
@@ -292,19 +444,12 @@ class SensorManager {
     const res = walkingVerificationService.calculateWalkingConfidence({
       deviceInfo: this.deviceInfo,
       gpsSpeedKmh: this.currentReading.speed,
+      distanceKm: this.currentReading.distanceKm,
       stepCount: this.currentReading.stepCount,
       hasStepCounter: this.currentReading.sensorAvailability.stepCounter,
-      accelData: this.currentReading.sensorAvailability.accelerometer ? {
-        x: this.currentReading.accelerationX,
-        y: this.currentReading.accelerationY,
-        z: this.currentReading.accelerationZ,
-        magnitude: this.currentReading.accelerationMagnitude,
-      } : null,
-      gyroData: this.currentReading.sensorAvailability.gyroscope ? {
-        alpha: this.currentReading.rotationAlpha,
-        beta: this.currentReading.rotationBeta,
-        gamma: this.currentReading.rotationGamma,
-      } : null,
+      accelMagnitude: this.currentReading.dynamicMagnitude || this.currentReading.accelerationMagnitude,
+      gyroMagnitude: this.currentReading.rotationalVelocity || 0,
+      hasGpsFix: Boolean(this.currentReading.latitude && this.currentReading.longitude),
     });
 
     this.currentReading.walkingConfidence = res.confidenceScore;
@@ -371,6 +516,7 @@ class SensorManager {
       longitude: this.currentReading.longitude,
       gpsAccuracy: this.currentReading.gpsAccuracy,
       speed: this.currentReading.speed,
+      distanceKm: this.currentReading.distanceKm,
       heading: this.currentReading.heading,
       stepCount: this.currentReading.stepCount,
       walkingConfidence: this.currentReading.walkingConfidence,

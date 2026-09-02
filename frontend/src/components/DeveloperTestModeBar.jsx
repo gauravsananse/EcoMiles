@@ -1,5 +1,17 @@
 import React from 'react';
-import { Terminal, Play, RotateCcw, AlertTriangle, ShieldCheck } from 'lucide-react';
+import {
+  Terminal,
+  Play,
+  RotateCcw,
+  AlertTriangle,
+  ShieldCheck,
+  Footprints,
+  Zap,
+  Bus,
+  Car,
+  AlertOctagon,
+  BluetoothOff
+} from 'lucide-react';
 import { REPLAY_PROFILES } from '../services/replayDatasets';
 
 export default function DeveloperTestModeBar({
@@ -7,10 +19,22 @@ export default function DeveloperTestModeBar({
   selectedProfileKey,
   onToggleTestMode,
   onSelectProfile,
-  onReplayNextFrame,
+  onSimulateScenario,
   currentLegIndex = 0,
 }) {
   const profile = REPLAY_PROFILES[selectedProfileKey] || REPLAY_PROFILES.walking;
+
+  const DEMO_SCENARIOS = [
+    { key: 'WALKING', label: 'Simulate Walking', icon: Footprints, color: '#10b981' },
+    { key: 'EV_DETECTED', label: 'Simulate EV Detection', icon: Zap, color: '#f59e0b' },
+    { key: 'EV_VERIFIED', label: 'Simulate EV Verified', icon: Zap, color: '#10b981' },
+    { key: 'EV_BLE_LOST', label: 'Simulate EV Bluetooth Lost', icon: BluetoothOff, color: '#ef4444' },
+    { key: 'BUS_DETECTED', label: 'Simulate Bus Detection', icon: Bus, color: '#3b82f6' },
+    { key: 'BUS_VERIFIED', label: 'Simulate Bus Verification', icon: Bus, color: '#10b981' },
+    { key: 'PETROL_VEHICLE', label: 'Simulate Petrol Vehicle', icon: Car, color: '#f43f5e' },
+    { key: 'FRAUD_TELEPORT', label: 'Simulate Fraud / Teleport', icon: AlertOctagon, color: '#dc2626' },
+    { key: 'WALKING_AGAIN', label: 'Simulate Walking Again', icon: Footprints, color: '#10b981' },
+  ];
 
   return (
     <div style={{
@@ -41,7 +65,7 @@ export default function DeveloperTestModeBar({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ fontWeight: 800, fontSize: '0.88rem' }}>
-                {isTestMode ? 'TEST MODE — REPLAYED SENSOR DATA' : 'LIVE DEVICE SENSOR MODE'}
+                {isTestMode ? 'DEMO & VERIFICATION TEST MODE' : 'LIVE DEVICE SENSOR MODE'}
               </span>
               <span style={{
                 background: isTestMode ? '#fef3c7' : '#ecfdf5',
@@ -52,13 +76,13 @@ export default function DeveloperTestModeBar({
                 fontSize: '0.68rem',
                 fontWeight: 700,
               }}>
-                {isTestMode ? 'SIMULATED TELEMETRY' : 'REAL BROWSER SENSORS'}
+                {isTestMode ? 'DEMO MODE' : 'REAL HARDWARE'}
               </span>
             </div>
             <div style={{ fontSize: '0.72rem', color: isTestMode ? '#94a3b8' : 'var(--slate-500)' }}>
               {isTestMode
-                ? 'Feeds recorded multi-modal kinematics through the exact same ML inference pipeline.'
-                : 'Uses real device Geolocation, Accelerometer, Gyroscope & Bluetooth APIs.'}
+                ? 'Simulate multi-modal transitions, EV verification, bus matching, fossil fuel rejection, and anti-fraud.'
+                : 'Uses real device Geolocation, Accelerometer, Gyroscope & Web Bluetooth APIs.'}
             </div>
           </div>
         </div>
@@ -79,39 +103,45 @@ export default function DeveloperTestModeBar({
               cursor: 'pointer',
             }}
           >
-            {isTestMode ? 'Switch to Live Device Mode' : 'Enable Developer Test Mode'}
+            {isTestMode ? 'Switch to Live Hardware Mode' : 'Enable Demo Test Mode'}
           </button>
         </div>
       </div>
 
-      {/* Profile Selector if in Test Mode */}
+      {/* Demo Scenario Shortcuts if in Test Mode */}
       {isTestMode && (
         <div style={{ marginTop: '0.85rem', borderTop: '1px solid #334155', paddingTop: '0.75rem' }}>
           <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '0.4rem', letterSpacing: '0.04em' }}>
-            Select Recorded Kinematic Scenario:
+            Multi-Modal Simulation Triggers (Section 47 & 48 Test Scenarios):
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.65rem' }}>
-            {Object.keys(REPLAY_PROFILES).map((key) => {
-              const p = REPLAY_PROFILES[key];
-              const isSelected = selectedProfileKey === key;
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.75rem' }}>
+            {DEMO_SCENARIOS.map((sc) => {
+              const Icon = sc.icon;
               return (
                 <button
-                  key={key}
+                  key={sc.key}
                   type="button"
-                  onClick={() => onSelectProfile(key)}
+                  onClick={() => onSimulateScenario && onSimulateScenario(sc.key)}
                   style={{
-                    padding: '4px 10px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '5px 9px',
                     borderRadius: '6px',
-                    border: isSelected ? '1px solid #38bdf8' : '1px solid #475569',
-                    background: isSelected ? '#0284c7' : '#1e293b',
+                    border: '1px solid #475569',
+                    background: '#1e293b',
                     color: '#ffffff',
-                    fontSize: '0.75rem',
-                    fontWeight: isSelected ? 800 : 600,
+                    fontSize: '0.73rem',
+                    fontWeight: 700,
                     cursor: 'pointer',
+                    transition: 'all 0.15s ease',
                   }}
+                  onMouseOver={(e) => (e.currentTarget.style.borderColor = sc.color)}
+                  onMouseOut={(e) => (e.currentTarget.style.borderColor = '#475569')}
                 >
-                  {p.name.split(' ')[0]} {p.name.split(' ')[1]}
+                  <Icon size={13} style={{ color: sc.color }} />
+                  <span>{sc.label}</span>
                 </button>
               );
             })}
@@ -128,12 +158,12 @@ export default function DeveloperTestModeBar({
             justifyContent: 'space-between',
           }}>
             <div>
-              <strong>{profile.name}</strong>: {profile.description}
+              <strong>Replay Dataset: {profile.name}</strong> &bull; {profile.description}
             </div>
 
             {profile.isMultiLeg && (
               <span style={{ color: '#38bdf8', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                Active: {profile.legs[currentLegIndex]?.legName}
+                Leg: {profile.legs[currentLegIndex]?.legName}
               </span>
             )}
           </div>

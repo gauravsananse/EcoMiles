@@ -14,21 +14,20 @@ const rewardTransactionSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
     index: true,
   },
   mode: {
     type: String,
-    enum: ['WALKING', 'CYCLING', 'BUS', 'METRO', 'EV', 'CAR', 'SCOOTER', 'STATIONARY'],
+    enum: ['WALK', 'WALKING', 'CYCLING', 'BUS', 'METRO', 'EV', 'PUBLIC_TRANSPORT', 'CAR', 'SCOOTER', 'STATIONARY'],
     required: true,
   },
   distanceKm: {
     type: Number,
-    required: true,
+    default: 0,
   },
   durationMinutes: {
     type: Number,
-    required: true,
+    default: 0,
   },
   estimatedGreenCredits: {
     type: Number,

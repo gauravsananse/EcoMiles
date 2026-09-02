@@ -22,8 +22,11 @@ import {
   Award
 } from 'lucide-react';
 import { api } from '../services/api';
+import { useTranslation } from '../i18n/I18nContext';
 
 export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
+  const { t } = useTranslation();
+
   // Tracking State
   const [isTracking, setIsTracking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -98,17 +101,19 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
         setDistanceKm((prev) => Number((prev + kmPerSec).toFixed(3)));
 
         // Cadence & Calories
-        setCadence(baseCadence > 0 ? Math.round(baseCadence + (Math.random() - 0.5) * 8) : 0);
-        setCalories((prev) => Math.round(prev + (liveSpeed > 10 ? 0.08 : 0.04)));
-
-        // Real-time AI classification update
-        if (liveSpeed < 8) {
+        if (simulatedActivity === 'WALKING') {
+          setCadence(Math.round(110 + (Math.random() - 0.5) * 10));
+          setCalories((prev) => prev + 0.08);
           setJourneyMode('WALKING');
-        } else if (liveSpeed <= 25) {
+        } else if (simulatedActivity === 'CYCLING') {
+          setCadence(Math.round(75 + (Math.random() - 0.5) * 8));
+          setCalories((prev) => prev + 0.15);
           setJourneyMode('CYCLING');
-        } else if (liveSpeed <= 40) {
+        } else if (simulatedActivity === 'BUS') {
+          setCadence(0);
           setJourneyMode('BUS');
-        } else {
+        } else if (simulatedActivity === 'METRO') {
+          setCadence(0);
           setJourneyMode('METRO');
         }
       }, 1000);
@@ -119,6 +124,7 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
     return () => clearInterval(timerRef.current);
   }, [isTracking, isPaused, simulatedActivity]);
 
+  // Actions
   const handleStartTracking = () => {
     if (!user) {
       onOpenAuth('login');
@@ -126,6 +132,7 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
     }
     setElapsedSeconds(0);
     setDistanceKm(0.0);
+    setCurrentSpeedKmh(0.0);
     setCalories(0);
     setCompletionResult(null);
     setIsTracking(true);
@@ -134,7 +141,6 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
 
   const handleStopAndVerify = async () => {
     setIsTracking(false);
-    setIsPaused(false);
     clearInterval(timerRef.current);
 
     if (distanceKm < 0.05 && elapsedSeconds < 5) {
@@ -202,11 +208,11 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
       <div className="page-header">
         <div className="badge-tag">
           <Compass size={14} fill="#059669" color="#059669" />
-          <span>AI Transport Mode Detection</span>
+          <span>{t('tracker.badge')}</span>
         </div>
-        <h1 className="page-title">Live Journey Tracker</h1>
+        <h1 className="page-title">{t('tracker.title')}</h1>
         <p className="page-subtitle">
-          Start your commute. Our AI engine automatically detects walking, cycling, or transit, verifies your journey, and credits your dual points in real-time.
+          {t('tracker.subtitle')}
         </p>
       </div>
 
@@ -223,7 +229,7 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
         }}>
           <div>
             <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--slate-400)', letterSpacing: '0.05em' }}>
-              Detected Transport Mode
+              {t('tracker.detectedMode')}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
               {getModeIcon(journeyMode, 22)}
@@ -244,7 +250,7 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
                   fontWeight: 700,
                 }}>
                   <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10b981' }} className="animate-pulse-subtle" />
-                  AI Live Sensor Feed
+                  {t('tracker.statusActive')}
                 </span>
               )}
             </div>
@@ -253,7 +259,7 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
           {/* Activity Simulation Selector */}
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--slate-500)', marginBottom: '0.25rem' }}>
-              Test Mode Simulation:
+              {t('tracker.simulationMode')}:
             </div>
             <div style={{ display: 'flex', gap: '0.25rem' }}>
               {['WALKING', 'CYCLING', 'BUS', 'METRO'].map((act) => (
@@ -288,7 +294,7 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
         }}>
           <div style={{ background: 'var(--slate-50)', borderRadius: '12px', padding: '1rem' }}>
             <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--slate-400)' }}>
-              Duration
+              {t('tracker.elapsedTime')}
             </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.8rem', fontWeight: 800, color: 'var(--slate-900)', marginTop: '0.25rem' }}>
               {formatTime(elapsedSeconds)}
@@ -297,19 +303,19 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
 
           <div style={{ background: 'var(--slate-50)', borderRadius: '12px', padding: '1rem' }}>
             <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--slate-400)' }}>
-              Distance
+              {t('tracker.distanceTravelled')}
             </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.8rem', fontWeight: 800, color: 'var(--primary-700)', marginTop: '0.25rem' }}>
-              {distanceKm.toFixed(2)} <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>km</span>
+              {distanceKm.toFixed(2)} <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{t('common.km')}</span>
             </div>
           </div>
 
           <div style={{ background: 'var(--slate-50)', borderRadius: '12px', padding: '1rem' }}>
             <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--slate-400)' }}>
-              Live Speed
+              {t('tracker.currentSpeed')}
             </div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.8rem', fontWeight: 800, color: 'var(--slate-900)', marginTop: '0.25rem' }}>
-              {currentSpeedKmh.toFixed(1)} <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>km/h</span>
+              {currentSpeedKmh.toFixed(1)} <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{t('common.kmh')}</span>
             </div>
           </div>
         </div>
@@ -328,7 +334,7 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
         }}>
           <div>
             <div style={{ fontSize: '0.72rem', color: '#a7f3d0', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>
-              Fitness Points
+              {t('tracker.fitnessPointsEarned')}
             </div>
             <div style={{ fontSize: '1.4rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', marginTop: '2px' }}>
               <Flame size={18} fill="#f97316" color="#f97316" />
@@ -340,7 +346,7 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
 
           <div>
             <div style={{ fontSize: '0.72rem', color: '#a7f3d0', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>
-              Green Credits
+              {t('tracker.greenCreditsEarned')}
             </div>
             <div style={{ fontSize: '1.4rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', marginTop: '2px' }}>
               <Leaf size={18} fill="#a7f3d0" color="#a7f3d0" />
@@ -352,10 +358,10 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
 
           <div>
             <div style={{ fontSize: '0.72rem', color: '#a7f3d0', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>
-              CO₂ Avoided
+              {t('tracker.co2Offset')}
             </div>
             <div style={{ fontSize: '1.4rem', fontWeight: 800, marginTop: '2px' }}>
-              {(distanceKm * 0.192).toFixed(2)} <span style={{ fontSize: '0.85rem' }}>kg</span>
+              {(distanceKm * 0.192).toFixed(2)} <span style={{ fontSize: '0.85rem' }}>{t('common.kg')}</span>
             </div>
           </div>
         </div>
@@ -369,7 +375,7 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
               style={{ width: '100%', maxWidth: '380px' }}
             >
               <Play size={20} fill="#ffffff" />
-              <span>Start Active Journey</span>
+              <span>{t('tracker.startJourney')}</span>
             </button>
           ) : (
             <>
@@ -379,7 +385,7 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
                 style={{ flex: 1 }}
               >
                 {isPaused ? <Play size={18} /> : <Pause size={18} />}
-                <span>{isPaused ? 'Resume' : 'Pause'}</span>
+                <span>{isPaused ? t('tracker.resumeJourney') : t('tracker.pauseJourney')}</span>
               </button>
 
               <button
@@ -391,12 +397,12 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
                 {isSubmitting ? (
                   <>
                     <Loader2 size={18} className="animate-spin" />
-                    <span>AI Verifying Journey...</span>
+                    <span>{t('tracker.verifying')}</span>
                   </>
                 ) : (
                   <>
                     <ShieldCheck size={18} />
-                    <span>Complete & Verify Journey</span>
+                    <span>{t('tracker.endJourney')}</span>
                   </>
                 )}
               </button>
@@ -411,7 +417,7 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
           <CheckCircle2 size={28} className="text-emerald-600" style={{ flexShrink: 0, marginTop: '2px' }} />
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 800, fontSize: '1.15rem', marginBottom: '0.25rem' }}>
-              🎉 Journey Verified by AI!
+              🎉 {t('tracker.journeySuccess')}
             </div>
             <div style={{ fontSize: '0.9rem', lineHeight: 1.5, marginBottom: '0.75rem' }}>
               <strong>{completionResult.mode}</strong> &bull; {completionResult.distanceKm} km in {completionResult.durationMinutes} mins
@@ -425,91 +431,18 @@ export default function JourneyTracker({ user, onUserUpdate, onOpenAuth }) {
               fontSize: '0.85rem',
               fontWeight: 700,
             }}>
-              <span style={{ color: '#ea580c' }}>+{completionResult.fitnessPointsEarned} Fitness Points</span>
+              <span style={{ color: '#ea580c' }}>+{completionResult.fitnessPointsEarned} FP</span>
               <span>&bull;</span>
-              <span style={{ color: '#059669' }}>+{completionResult.greenCreditsEarned} Green Credits</span>
+              <span style={{ color: '#059669' }}>+{completionResult.greenCreditsEarned} GP</span>
               <span>&bull;</span>
               <span>{completionResult.co2AvoidedKg} kg CO₂ Saved</span>
             </div>
             <div style={{ fontSize: '0.78rem', marginTop: '0.5rem', opacity: 0.85 }}>
-              Reasoning: {completionResult.detectionReasoning}
+              {t('tracker.journeySuccessDesc')}
             </div>
           </div>
         </div>
       )}
-
-      {/* Past Journey History Table */}
-      <div className="card" style={{ maxWidth: '850px', margin: '0 auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
-          <div>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--slate-900)' }}>
-              Recent Verified Journeys
-            </h2>
-            <p style={{ fontSize: '0.85rem', color: 'var(--slate-500)' }}>
-              AI telemetry log of active commutes and credits earned
-            </p>
-          </div>
-          <Award size={20} className="text-emerald-600" />
-        </div>
-
-        {history.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--slate-400)', fontSize: '0.9rem' }}>
-            <Compass size={36} style={{ margin: '0 auto 0.75rem', opacity: 0.5 }} />
-            <div>No journeys recorded yet. Click "Start Active Journey" above!</div>
-          </div>
-        ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid var(--slate-100)', textAlign: 'left', color: 'var(--slate-500)', fontSize: '0.75rem', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '0.75rem 0.5rem' }}>Mode</th>
-                  <th style={{ padding: '0.75rem 0.5rem' }}>Distance</th>
-                  <th style={{ padding: '0.75rem 0.5rem' }}>Duration</th>
-                  <th style={{ padding: '0.75rem 0.5rem' }}>Points Earned</th>
-                  <th style={{ padding: '0.75rem 0.5rem' }}>CO₂ Saved</th>
-                  <th style={{ padding: '0.75rem 0.5rem' }}>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((j) => (
-                  <tr key={j._id} style={{ borderBottom: '1px solid var(--slate-100)' }}>
-                    <td style={{ padding: '0.85rem 0.5rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                      {getModeIcon(j.mode, 16)}
-                      <span>{j.mode}</span>
-                    </td>
-                    <td style={{ padding: '0.85rem 0.5rem', fontFamily: 'var(--font-mono)' }}>
-                      {j.distanceKm} km
-                    </td>
-                    <td style={{ padding: '0.85rem 0.5rem' }}>
-                      {j.durationMinutes} min
-                    </td>
-                    <td style={{ padding: '0.85rem 0.5rem', fontWeight: 700 }}>
-                      <span style={{ color: '#ea580c' }}>+{j.fitnessPointsEarned} FP</span>
-                      {' / '}
-                      <span style={{ color: '#059669' }}>+{j.greenCreditsEarned} GP</span>
-                    </td>
-                    <td style={{ padding: '0.85rem 0.5rem', color: 'var(--slate-600)' }}>
-                      {j.co2AvoidedKg} kg
-                    </td>
-                    <td style={{ padding: '0.85rem 0.5rem' }}>
-                      <span style={{
-                        background: 'var(--primary-50)',
-                        color: 'var(--primary-700)',
-                        padding: '2px 8px',
-                        borderRadius: '9999px',
-                        fontSize: '0.72rem',
-                        fontWeight: 700,
-                      }}>
-                        ✓ AI Verified
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

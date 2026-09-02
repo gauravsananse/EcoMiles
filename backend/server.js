@@ -7,13 +7,20 @@ const connectDB = require('./config/db');
 // Load environment variables
 dotenv.config();
 
+const path = require('path');
 const app = express();
 
-// Security middleware
-app.use(helmet());
+// Security & CORS middleware (allow cross-origin assets for Leaflet map tiles and mobile sensor tunnels)
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+  })
+);
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: true,
     credentials: true,
   })
 );
@@ -44,6 +51,22 @@ app.use('/api/rewards', rewardRoutes);
 app.use('/api/transit', transitRoutes);
 app.use('/api/fraud', fraudRoutes);
 
+const os = require('os');
+const tunnelService = require('./services/tunnelService');
+
+// Helper to get local Wi-Fi / LAN IP address
+function getLocalNetworkIP() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal && !iface.address.startsWith('127.') && !iface.address.startsWith('169.254.')) {
+        return iface.address;
+      }
+    }
+  }
+  return 'localhost';
+}
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.status(200).json({
@@ -58,7 +81,41 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Fallback 404 handler
+// Network LAN IP & Public HTTPS Tunnel endpoint for mobile scanning
+app.get('/api/network-ip', (req, res) => {
+  const ip = getLocalNetworkIP();
+  const port = process.env.VITE_PORT || 5173;
+  const tunnelUrl = tunnelService.getTunnelUrl();
+  const localUrl = `http://${ip}:${port}`;
+
+  res.status(200).json({
+    success: true,
+    ip,
+    port,
+    localUrl,
+    tunnelUrl,
+    mobileUrl: tunnelUrl || localUrl,
+    isSecureTunnel: Boolean(tunnelUrl),
+  });
+});
+
+// Serve static production build of frontend if available
+const distPath = path.join(__dirname, '../frontend/dist');
+app.use(express.static(distPath));
+
+// Frontend SPA HTML Fallback
+app.get('*', (req, res, next) => {
+  if (req.originalUrl.startsWith('/api')) {
+    return next();
+  }
+  res.sendFile(path.join(distPath, 'index.html'), (err) => {
+    if (err) {
+      next();
+    }
+  });
+});
+
+// Fallback 404 handler for unmatched API routes
 app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
@@ -83,13 +140,18 @@ let server;
 if (process.env.NODE_ENV !== 'test') {
   connectDB()
     .then(() => {
-      server = app.listen(PORT, () => {
+      server = app.listen(PORT, '0.0.0.0', () => {
+        const lanIp = getLocalNetworkIP();
         console.log(`====================================================`);
         console.log(`  GREEN CREDITS — SMART MOBILITY PLATFORM`);
         console.log(`  Server running on http://localhost:${PORT}`);
-        console.log(`  Environment: ${process.env.NODE_ENV || 'development'}`);
-        console.log(`  Provider: ${process.env.VEHICLE_API_PROVIDER || 'Unconfigured'}`);
+        console.log(`  Local Network:    http://${lanIp}:${PORT}`);
+        console.log(`  Environment:      ${process.env.NODE_ENV || 'development'}`);
+        console.log(`  Provider:         ${process.env.VEHICLE_API_PROVIDER || 'Unconfigured'}`);
         console.log(`====================================================`);
+
+        // Start public HTTPS tunnel for mobile connectivity
+        tunnelService.startTunnel(5173);
       });
     })
     .catch((err) => {

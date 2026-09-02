@@ -10,6 +10,7 @@ import {
   Loader2,
   Car
 } from 'lucide-react';
+import { useTranslation } from '../i18n/I18nContext';
 
 export default function RegisteredVehicle({
   vehicle,
@@ -19,6 +20,7 @@ export default function RegisteredVehicle({
   isRegenerating,
   isUnlinking,
 }) {
+  const { t } = useTranslation();
   const [showConfirmUnlink, setShowConfirmUnlink] = useState(false);
 
   if (!vehicle) return null;
@@ -28,10 +30,10 @@ export default function RegisteredVehicle({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
         <div>
           <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--slate-900)' }}>
-            My Registered EV
+            {t('ev.registeredVehicle')}
           </h2>
           <p style={{ fontSize: '0.875rem', color: 'var(--slate-500)' }}>
-            Active vehicle bound to your Green Credits account
+            {t('ev.qualificationNotice')}
           </p>
         </div>
         <div style={{
@@ -47,7 +49,7 @@ export default function RegisteredVehicle({
           fontWeight: 700,
         }}>
           <CheckCircle2 size={14} />
-          <span>Active & Verified</span>
+          <span>{t('ev.vehicleVerified')}</span>
         </div>
       </div>
 
@@ -82,7 +84,7 @@ export default function RegisteredVehicle({
               color: '#a7f3d0',
               fontWeight: 700,
             }}>
-              Green Credits EV Pass
+              {t('ev.qrPass')}
             </div>
             <div style={{
               fontFamily: 'var(--font-mono)',
@@ -110,7 +112,7 @@ export default function RegisteredVehicle({
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', marginTop: '1.25rem' }}>
           <div>
             <div style={{ fontSize: '0.72rem', color: '#a7f3d0', textTransform: 'uppercase', fontWeight: 600 }}>
-              Model
+              {t('ev.model')}
             </div>
             <div style={{ fontSize: '0.95rem', fontWeight: 700 }}>
               {vehicle.manufacturer} {vehicle.model}
@@ -119,26 +121,26 @@ export default function RegisteredVehicle({
 
           <div>
             <div style={{ fontSize: '0.72rem', color: '#a7f3d0', textTransform: 'uppercase', fontWeight: 600 }}>
-              Fuel / Type
+              {t('ev.fuelType')}
             </div>
             <div style={{ fontSize: '0.95rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
               <Zap size={14} fill="#a7f3d0" color="#a7f3d0" />
-              <span>{vehicle.fuelType || 'Electric'}</span>
+              <span>{vehicle.fuelType || t('ev.electricVehicle')}</span>
             </div>
           </div>
 
           <div>
             <div style={{ fontSize: '0.72rem', color: '#a7f3d0', textTransform: 'uppercase', fontWeight: 600 }}>
-              Status
+              {t('city.status')}
             </div>
             <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#d1fae5' }}>
-              ● Verified & Active
+              ● {t('city.active')}
             </div>
           </div>
 
           <div>
             <div style={{ fontSize: '0.72rem', color: '#a7f3d0', textTransform: 'uppercase', fontWeight: 600 }}>
-              Verification Source
+              {t('ev.verificationSource')}
             </div>
             <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#d1fae5' }}>
               {vehicle.verificationSource || 'National Vahan RC'}
@@ -155,7 +157,7 @@ export default function RegisteredVehicle({
           style={{ flex: '1 1 180px' }}
         >
           <QrCode size={17} />
-          <span>View QR Code</span>
+          <span>{t('ev.qrPass')}</span>
         </button>
 
         <button
@@ -167,12 +169,12 @@ export default function RegisteredVehicle({
           {isRegenerating ? (
             <>
               <Loader2 size={16} className="animate-spin" />
-              <span>Regenerating...</span>
+              <span>{t('common.loading')}</span>
             </>
           ) : (
             <>
               <RefreshCw size={16} />
-              <span>Regenerate QR</span>
+              <span>{t('ev.generateQr')}</span>
             </>
           )}
         </button>
@@ -184,7 +186,7 @@ export default function RegisteredVehicle({
             style={{ flex: '1 1 180px' }}
           >
             <Trash2 size={16} />
-            <span>Unlink Vehicle</span>
+            <span>{t('ev.unlinkVehicle')}</span>
           </button>
         ) : (
           <div style={{
@@ -208,7 +210,7 @@ export default function RegisteredVehicle({
                 className="btn btn-secondary"
                 style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
               >
-                Cancel
+                {t('modals.cancel')}
               </button>
               <button
                 onClick={() => {
@@ -219,7 +221,7 @@ export default function RegisteredVehicle({
                 style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem', background: 'var(--rose-600)', color: '#fff' }}
                 disabled={isUnlinking}
               >
-                {isUnlinking ? 'Unlinking...' : 'Yes, Unlink'}
+                {isUnlinking ? t('ev.unlinking') : t('ev.unlinkVehicle')}
               </button>
             </div>
           </div>

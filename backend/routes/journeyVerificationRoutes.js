@@ -4,56 +4,85 @@ const {
   startJourney,
   processSensorData,
   runInferenceOnly,
+  verifyEV,
+  confirmPublicTransport,
+  getNearbyRoutes,
+  logVerificationEvent,
+  getVerificationEvents,
+  updateSteps,
   endJourney,
   getJourney,
   getJourneySegments,
   deleteJourney,
+  startSegment,
+  completeSegment,
+  getJourneySummary,
 } = require('../controllers/journeyVerificationController');
 const { optionalAuth } = require('../middleware/authMiddleware');
-const fraudDetectionService = require('../services/fraudDetectionService');
 
-// Start new journey
+// ─── Journey lifecycle ────────────────────────────────────────────────────────
 router.post('/start', optionalAuth, startJourney);
+router.post('/end', optionalAuth, endJourney);
 
-// Stream and process sensor data window
+// ─── Sensor data & ML inference ──────────────────────────────────────────────
 router.post('/sensor-data', optionalAuth, processSensorData);
-
-// Stateless ML inference endpoint
 router.post('/inference', optionalAuth, runInferenceOnly);
 
-// Verify journey segment / state
+// ─── Nearby routes lookup ─────────────────────────────────────────────────────
+router.get('/nearby-routes', optionalAuth, getNearbyRoutes);
+
+// ─── Quick verify state ───────────────────────────────────────────────────────
 router.post('/verify', optionalAuth, async (req, res) => {
   try {
     const { journeyId } = req.body;
-    if (!journeyId) {
-      return res.status(400).json({ success: false, error: 'journeyId is required' });
-    }
+    if (!journeyId) return res.status(400).json({ success: false, error: 'journeyId is required' });
     const Journey = require('../models/Journey');
     const journey = await Journey.findById(journeyId);
-    if (!journey) {
-      return res.status(404).json({ success: false, error: 'Journey not found' });
-    }
+    if (!journey) return res.status(404).json({ success: false, error: 'Journey not found' });
     return res.status(200).json({
       success: true,
+      journeyState: journey.journeyState,
       verificationStatus: journey.overallFraudScore > 50 ? 'HELD' : 'VERIFIED',
       fraudScore: journey.overallFraudScore,
       segments: journey.segments,
+      verifiedWalkingSteps: journey.verifiedWalkingSteps,
+      rawSteps: journey.rawSteps,
     });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// End journey and finalize rewards
-router.post('/end', optionalAuth, endJourney);
+// ─── Per-journey: must come after static routes ───────────────────────────────
 
-// Get journey details
-router.get('/:id', optionalAuth, getJourney);
+// EV Bluetooth Verification & Fossil Fuel Rejection
+router.post('/:id/verify-ev', optionalAuth, verifyEV);
 
-// Get journey segments
+// Public Transport Candidate Confirmation & Verification
+router.post('/:id/public-transport-confirm', optionalAuth, confirmPublicTransport);
+
+// Verification Event Audit Logging & Retrieval
+router.post('/:id/verification-event', optionalAuth, logVerificationEvent);
+router.get('/:id/events', optionalAuth, getVerificationEvents);
+
+// Mode-aware step update
+router.post('/:id/steps', optionalAuth, updateSteps);
+
+// ─── Multi-Segment Lifecycle (NEW) ────────────────────────────────────────────
+// Start a new segment under same journey (Continue Journey)
+router.post('/:id/segments/start', optionalAuth, startSegment);
+
+// Complete an active segment and lock rewards
+router.post('/:id/segments/:segmentIndex/complete', optionalAuth, completeSegment);
+
+// ─── Journey detail views ─────────────────────────────────────────────────────
+// Aggregated journey summary with combined points
+router.get('/:id/summary', optionalAuth, getJourneySummary);
+
+// All segments
 router.get('/:id/segments', optionalAuth, getJourneySegments);
 
-// Get journey rewards status
+// Reward transactions
 router.get('/:id/rewards', optionalAuth, async (req, res) => {
   try {
     const RewardTransaction = require('../models/RewardTransaction');
@@ -64,7 +93,10 @@ router.get('/:id/rewards', optionalAuth, async (req, res) => {
   }
 });
 
-// Delete journey (Privacy requirement)
+// Full journey document
+router.get('/:id', optionalAuth, getJourney);
+
+// Privacy: Delete journey & sensor records
 router.delete('/:id', optionalAuth, deleteJourney);
 
 module.exports = router;

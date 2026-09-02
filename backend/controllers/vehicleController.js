@@ -144,14 +144,20 @@ exports.registerVehicle = async (req, res) => {
     // Generate cryptographic QR token
     const qrToken = qrService.generateSecureToken();
 
+    // Authorized BLE identity format: GC-EV-XXXXXX
+    const bleId = req.body.bluetoothIdentifier || `GC-EV-${cleanReg.slice(-4).toUpperCase()}`;
+
     // Create Vehicle record
     const vehicle = await Vehicle.create({
       userId: req.user._id,
       registrationNumber: cleanReg,
-      vehicleType: 'EV',
+      vehicleType: req.body.vehicleType || 'EV',
+      make: req.body.make || manufacturer || 'Electric Vehicle Maker',
       manufacturer: manufacturer || 'Electric Vehicle Maker',
       model: model || 'Model',
-      fuelType: fuelType || 'Electric',
+      fuelType: fuelType || 'ELECTRIC',
+      bluetoothIdentifier: bleId,
+      isVerified: true,
       vehicleClass: vehicleClass || 'Motor Vehicle (EV)',
       maskedOwnerName: maskedOwnerName || 'Registered Owner',
       registrationDate: registrationDate || 'N/A',
@@ -176,8 +182,10 @@ exports.registerVehicle = async (req, res) => {
         vehicleId: vehicleIdFormatted,
         registrationNumber: vehicle.registrationNumber,
         manufacturer: vehicle.manufacturer,
+        make: vehicle.make,
         model: vehicle.model,
         fuelType: vehicle.fuelType,
+        bluetoothIdentifier: vehicle.bluetoothIdentifier,
         vehicleClass: vehicle.vehicleClass,
         maskedOwnerName: vehicle.maskedOwnerName,
         registrationDate: vehicle.registrationDate,
@@ -237,8 +245,11 @@ exports.getMyVehicle = async (req, res) => {
         vehicleId: vehicleIdFormatted,
         registrationNumber: vehicle.registrationNumber,
         manufacturer: vehicle.manufacturer,
+        make: vehicle.make,
         model: vehicle.model,
         fuelType: vehicle.fuelType,
+        bluetoothIdentifier: vehicle.bluetoothIdentifier,
+        isVerified: vehicle.isVerified,
         vehicleClass: vehicle.vehicleClass,
         maskedOwnerName: vehicle.maskedOwnerName,
         registrationDate: vehicle.registrationDate,

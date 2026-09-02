@@ -8,11 +8,14 @@ import RewardsMarketplace from './pages/RewardsMarketplace';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import { api, getStoredUser } from './services/api';
+import { I18nProvider, useTranslation } from './i18n/I18nContext';
 
-export default function App() {
+function AppContent() {
   const [user, setUser] = useState(getStoredUser());
-  const [activeTab, setActiveTab] = useState('tracker'); // 'tracker' | 'routes' | 'city' | 'rewards' | 'ev'
+  const [activeTab, setActiveTab] = useState('routes'); // Default to routes for direct route planning experience
+  const [selectedRouteToTrack, setSelectedRouteToTrack] = useState(null);
   const [authModal, setAuthModal] = useState(null); // 'login' | 'register' | null
+  const { t } = useTranslation();
 
   useEffect(() => {
     // Validate session if user token exists
@@ -44,6 +47,11 @@ export default function App() {
     setAuthModal(null);
   };
 
+  const handleSelectRouteToTrack = (route) => {
+    setSelectedRouteToTrack(route);
+    setActiveTab('tracker');
+  };
+
   return (
     <div className="app-layout">
       <Navbar
@@ -58,21 +66,16 @@ export default function App() {
         {activeTab === 'tracker' && (
           <MultimodalMobilityVerification
             user={user}
+            selectedRoute={selectedRouteToTrack}
+            onClearSelectedRoute={() => setSelectedRouteToTrack(null)}
             onUserUpdate={setUser}
-            onOpenAuth={(type) => setAuthModal(type)}
-          />
-        )}
-
-        {activeTab === 'ev' && (
-          <EVRegistration
-            user={user}
             onOpenAuth={(type) => setAuthModal(type)}
           />
         )}
 
         {activeTab === 'routes' && (
           <SmartRoutePlanner
-            onSelectRouteToTrack={() => setActiveTab('tracker')}
+            onSelectRouteToTrack={handleSelectRouteToTrack}
           />
         )}
 
@@ -84,6 +87,13 @@ export default function App() {
           <RewardsMarketplace
             user={user}
             onUserUpdate={setUser}
+            onOpenAuth={(type) => setAuthModal(type)}
+          />
+        )}
+
+        {activeTab === 'ev' && (
+          <EVRegistration
+            user={user}
             onOpenAuth={(type) => setAuthModal(type)}
           />
         )}
@@ -114,12 +124,20 @@ export default function App() {
         marginTop: '2rem',
       }}>
         <div style={{ fontWeight: 700, color: 'var(--slate-700)' }}>
-          Green Credit — AI Multimodal Mobility Verification Platform
+          {t('footer.tagline')}
         </div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.35rem', color: 'var(--slate-400)' }}>
-          Real-time sensor fusion &bull; Anti-fraud kinematic audit &bull; Public transport & EV cryptographic reward verification
+          {t('footer.subtagline')}
         </div>
       </footer>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <I18nProvider>
+      <AppContent />
+    </I18nProvider>
   );
 }

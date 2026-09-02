@@ -18,7 +18,11 @@ const vehicleSchema = new mongoose.Schema({
   vehicleType: {
     type: String,
     default: 'EV',
-    enum: ['EV', 'Electric Vehicle', '2W-EV', '3W-EV', '4W-EV'],
+  },
+  make: {
+    type: String,
+    trim: true,
+    default: '',
   },
   manufacturer: {
     type: String,
@@ -33,7 +37,18 @@ const vehicleSchema = new mongoose.Schema({
   fuelType: {
     type: String,
     required: [true, 'Fuel type is required'],
+    uppercase: true,
     trim: true,
+    default: 'ELECTRIC',
+  },
+  bluetoothIdentifier: {
+    type: String,
+    trim: true,
+    default: null, // e.g. GC-EV-8F31A2
+  },
+  isVerified: {
+    type: Boolean,
+    default: true,
   },
   vehicleClass: {
     type: String,

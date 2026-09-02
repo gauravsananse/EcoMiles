@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Mail, Lock, User, Loader2, AlertCircle, X, Zap } from 'lucide-react';
 import { api } from '../services/api';
+import { useTranslation } from '../i18n/I18nContext';
 
 export default function Register({ isOpen, onClose, onSwitchToLogin, onSuccess }) {
   const [name, setName] = useState('');
@@ -8,18 +9,19 @@ export default function Register({ isOpen, onClose, onSwitchToLogin, onSuccess }
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const { t } = useTranslation();
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!name.trim() || !email.trim() || !password.trim()) {
-      setError('Please fill in all fields.');
+      setError(t('auth.errFillAll'));
       return;
     }
 
     if (password.length < 6) {
-      setError('Password must be at least 6 characters long.');
+      setError(t('auth.errPassLength'));
       return;
     }
 
@@ -33,7 +35,7 @@ export default function Register({ isOpen, onClose, onSwitchToLogin, onSuccess }
         onClose();
       }
     } catch (err) {
-      setError(err.data?.error || err.message || 'Registration failed. Please try again.');
+      setError(err.data?.error || err.message || t('auth.errRegisterFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -63,6 +65,7 @@ export default function Register({ isOpen, onClose, onSwitchToLogin, onSuccess }
             cursor: 'pointer',
             color: 'var(--slate-400)',
           }}
+          aria-label={t('modals.close')}
         >
           <X size={20} />
         </button>
@@ -82,10 +85,10 @@ export default function Register({ isOpen, onClose, onSwitchToLogin, onSuccess }
             <Zap size={24} />
           </div>
           <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--slate-900)' }}>
-            Create Account
+            {t('auth.registerTitle')}
           </h2>
           <p style={{ fontSize: '0.85rem', color: 'var(--slate-500)', marginTop: '0.25rem' }}>
-            Register to bind and verify your Electric Vehicles
+            {t('auth.registerSubtitle')}
           </p>
         </div>
 
@@ -110,13 +113,13 @@ export default function Register({ isOpen, onClose, onSwitchToLogin, onSuccess }
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div>
             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: 'var(--slate-700)', marginBottom: '0.35rem' }}>
-              Full Name
+              {t('auth.fullName')}
             </label>
             <div style={{ position: 'relative' }}>
               <User size={17} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--slate-400)' }} />
               <input
                 type="text"
-                placeholder="Gaurav Sharma"
+                placeholder={t('auth.fullNamePlaceholder')}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
@@ -134,13 +137,13 @@ export default function Register({ isOpen, onClose, onSwitchToLogin, onSuccess }
 
           <div>
             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: 'var(--slate-700)', marginBottom: '0.35rem' }}>
-              Email Address
+              {t('auth.email')}
             </label>
             <div style={{ position: 'relative' }}>
               <Mail size={17} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--slate-400)' }} />
               <input
                 type="email"
-                placeholder="name@example.com"
+                placeholder={t('auth.emailPlaceholder')}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -158,13 +161,13 @@ export default function Register({ isOpen, onClose, onSwitchToLogin, onSuccess }
 
           <div>
             <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700, color: 'var(--slate-700)', marginBottom: '0.35rem' }}>
-              Password
+              {t('auth.password')}
             </label>
             <div style={{ position: 'relative' }}>
               <Lock size={17} style={{ position: 'absolute', left: '12px', top: '12px', color: 'var(--slate-400)' }} />
               <input
                 type="password"
-                placeholder="At least 6 characters"
+                placeholder={t('auth.passwordMinPlaceholder')}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
@@ -189,16 +192,16 @@ export default function Register({ isOpen, onClose, onSwitchToLogin, onSuccess }
             {isLoading ? (
               <>
                 <Loader2 size={18} className="animate-spin" />
-                <span>Creating Account...</span>
+                <span>{t('auth.creatingAccount')}</span>
               </>
             ) : (
-              <span>Create Account</span>
+              <span>{t('auth.createAccountBtn')}</span>
             )}
           </button>
         </form>
 
         <div style={{ textAlign: 'center', marginTop: '1.25rem', fontSize: '0.85rem', color: 'var(--slate-500)' }}>
-          Already have an account?{' '}
+          {t('auth.haveAccountPrompt')}{' '}
           <button
             onClick={onSwitchToLogin}
             style={{
@@ -210,7 +213,7 @@ export default function Register({ isOpen, onClose, onSwitchToLogin, onSuccess }
               textDecoration: 'underline',
             }}
           >
-            Sign in
+            {t('auth.signInHere')}
           </button>
         </div>
       </div>

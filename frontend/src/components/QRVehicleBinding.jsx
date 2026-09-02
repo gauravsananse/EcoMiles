@@ -15,6 +15,7 @@ import {
   Check
 } from 'lucide-react';
 import { api } from '../services/api';
+import { useTranslation } from '../i18n/I18nContext';
 
 export default function QRVehicleBinding({
   vehicle,
@@ -22,6 +23,7 @@ export default function QRVehicleBinding({
   onRegenerate,
   isRegenerating,
 }) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('display'); // 'display' | 'scanner'
   const [scanInputToken, setScanInputToken] = useState('');
   const [isVerifyingQR, setIsVerifyingQR] = useState(false);
@@ -141,6 +143,7 @@ export default function QRVehicleBinding({
             color: 'var(--slate-400)',
             padding: '4px',
           }}
+          aria-label={t('modals.close')}
         >
           <X size={20} />
         </button>
@@ -170,7 +173,7 @@ export default function QRVehicleBinding({
               transition: 'all 0.15s ease',
             }}
           >
-            Your Vehicle QR
+            {t('ev.qrPass')}
           </button>
           <button
             onClick={() => { setActiveTab('scanner'); setScanResult(null); }}
@@ -188,7 +191,7 @@ export default function QRVehicleBinding({
               transition: 'all 0.15s ease',
             }}
           >
-            Scan & Verify Access
+            {t('tracker.scanQr')}
           </button>
         </div>
 
@@ -196,7 +199,7 @@ export default function QRVehicleBinding({
           <div>
             <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
               <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--slate-900)' }}>
-                Your Vehicle QR Code
+                {t('ev.qrPass')}
               </h3>
               <div style={{
                 fontFamily: 'var(--font-mono)',
@@ -231,7 +234,7 @@ export default function QRVehicleBinding({
                 lineHeight: 1.4,
                 marginBottom: '1rem',
               }}>
-                Place this QR code on your EV. It can later be scanned to confirm physical access to the registered vehicle.
+                {t('ev.qualificationNotice')}
               </p>
 
               {/* Secure Token display */}
@@ -264,7 +267,7 @@ export default function QRVehicleBinding({
                     alignItems: 'center',
                     gap: '2px',
                   }}
-                  title="Copy full cryptographic token"
+                  title={t('rewards.copyCode')}
                 >
                   {copied ? <Check size={14} /> : <Copy size={14} />}
                 </button>
@@ -307,7 +310,7 @@ export default function QRVehicleBinding({
                 ) : (
                   <RefreshCw size={16} />
                 )}
-                <span>Generate New QR</span>
+                <span>{t('ev.generateQr')}</span>
               </button>
             </div>
           </div>
@@ -370,7 +373,7 @@ export default function QRVehicleBinding({
                 {isVerifyingQR ? (
                   <>
                     <Loader2 size={16} className="animate-spin" />
-                    <span>Verifying...</span>
+                    <span>{t('tracker.verifying')}</span>
                   </>
                 ) : (
                   <>

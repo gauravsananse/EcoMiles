@@ -12,8 +12,10 @@ import {
   Navigation
 } from 'lucide-react';
 import { api } from '../services/api';
+import { useTranslation } from '../i18n/I18nContext';
 
 export default function CityTransportNetwork() {
+  const { t } = useTranslation();
   const [transitData, setTransitData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -40,11 +42,11 @@ export default function CityTransportNetwork() {
       <div className="page-header">
         <div className="badge-tag">
           <Building2 size={14} fill="#059669" color="#059669" />
-          <span>Municipal Urban Transit Grid</span>
+          <span>{t('city.badge')}</span>
         </div>
-        <h1 className="page-title">City Smart Mobility & Corridor Intelligence</h1>
+        <h1 className="page-title">{t('city.title')}</h1>
         <p className="page-subtitle">
-          Real-time registry of public transit corridors, municipal Bluetooth beacons, and clean mobility corridors.
+          {t('city.subtitle')}
         </p>
       </div>
 
@@ -54,10 +56,10 @@ export default function CityTransportNetwork() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
             <div>
               <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--slate-900)' }}>
-                Registered Transit Authority BLE Beacons
+                {t('city.bleBeacons')}
               </h3>
               <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>
-                Hardware verification infrastructure deployed on urban transit lines
+                {t('city.bleBeaconsDesc')}
               </div>
             </div>
             <Radio size={20} className="text-emerald-600" />
@@ -109,7 +111,7 @@ export default function CityTransportNetwork() {
                     fontSize: '0.72rem',
                     fontWeight: 700,
                   }}>
-                    ● {b.status}
+                    ● {b.status || t('city.active')}
                   </span>
                   <div style={{ fontSize: '0.7rem', color: 'var(--slate-400)', marginTop: '2px' }}>
                     {b.operator}
@@ -125,10 +127,10 @@ export default function CityTransportNetwork() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
             <div>
               <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--slate-900)' }}>
-                Dedicated Multi-Modal Corridors
+                {t('city.cleanCorridors')}
               </h3>
               <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)' }}>
-                Geofenced transit lines validated by the Sensor Fusion AI Engine
+                {t('city.cleanCorridorsDesc')}
               </div>
             </div>
             <Layers size={20} className="text-blue-600" />

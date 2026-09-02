@@ -35,25 +35,27 @@ class SensorFusionService {
 
     const evidenceList = [];
 
-    // 1. STATIONARY CHECK
-    if (feats.gpsSpeedAvg < 1.2 && feats.gpsSpeedMax < 2.0) {
-      scores.STATIONARY += 12.0;
-      if (feats.accelRms < 0.2) scores.STATIONARY += 4.0;
-      evidenceList.push('Near-zero velocity and negligible body motion');
-    }
-
-    // 2. WALKING SIGNATURE
-    // Speed: 1.5 - 7.2 km/h, High Accel RMS (0.8 - 3.5), High Jerk (>2.5), Cadence (90 - 135)
-    else if (feats.gpsSpeedAvg >= 1.5 && feats.gpsSpeedAvg <= 7.2) {
-      scores.WALKING += 7.0;
-      if (feats.cadence >= 70 || feats.accelRms >= 0.8) {
-        scores.WALKING += 6.0;
-        evidenceList.push('Cadence matches active pedestrian gait (90–130 spm)');
+    // 1. WALKING SIGNATURE (Checked with cadence and motion priority)
+    if (
+      feats.gpsSpeedAvg <= 7.5 &&
+      (feats.cadence >= 40 || (sensorWindow.stepCount > 0 && feats.accelRms >= 0.3) || (feats.gpsSpeedAvg >= 1.2 && feats.gpsSpeedAvg <= 7.2))
+    ) {
+      scores.WALKING += 9.0;
+      if (feats.cadence >= 60 || sensorWindow.stepCount > 0) {
+        scores.WALKING += 5.0;
+        evidenceList.push(`Pedestrian cadence verified (${Math.round(feats.cadence || 100)} spm)`);
       }
-      if (feats.accelJerkMean > 2.5) {
+      if (feats.accelRms >= 0.5 || feats.accelJerkMean > 1.5) {
         scores.WALKING += 4.0;
         evidenceList.push('Rhythmic step impact acceleration signature');
       }
+    }
+
+    // 2. STATIONARY CHECK (Only when both speed is near zero AND cadence is absent)
+    else if (feats.gpsSpeedAvg < 1.2 && feats.gpsSpeedMax < 2.0 && feats.cadence < 30) {
+      scores.STATIONARY += 12.0;
+      if (feats.accelRms < 0.25) scores.STATIONARY += 4.0;
+      evidenceList.push('Near-zero velocity and negligible body motion');
     }
 
     // 3. CYCLING SIGNATURE
@@ -67,12 +69,12 @@ class SensorFusionService {
     }
 
     // 4. MOTOR SCOOTER / MOTORCYCLE SIGNATURE (Crucial Anti-Fraud)
-    // Speed: 10.0 - 45.0 km/h, Cadence: 0, Low human jerk, High frequency engine vibration, Off transit corridor
+    // Speed: 7.5 - 55.0 km/h, Cadence: 0, Low human jerk, High frequency engine vibration, Off transit corridor
     else if (
-      feats.gpsSpeedAvg >= 10.0 &&
-      feats.gpsSpeedAvg <= 45.0 &&
+      feats.gpsSpeedAvg >= 7.5 &&
+      feats.gpsSpeedAvg <= 55.0 &&
       feats.cadence === 0 &&
-      feats.stopFrequency < 0.2 &&
+      feats.stopFrequency < 0.25 &&
       feats.transitCorridorOverlap < 0.4 &&
       !hasBluetoothBus
     ) {

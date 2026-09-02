@@ -154,11 +154,37 @@ export const api = {
     return request('/journeys/history', { method: 'GET' });
   },
 
+  // Google Places Autocomplete & Details
+  autocompletePlaces: async (input, sessionToken, lat, lng) => {
+    let q = `?input=${encodeURIComponent(input)}`;
+    if (sessionToken) q += `&sessionToken=${encodeURIComponent(sessionToken)}`;
+    if (lat && lng) q += `&lat=${lat}&lng=${lng}`;
+    return request(`/routes/places/autocomplete${q}`, { method: 'GET' });
+  },
+
+  getPlaceDetails: async (placeId, sessionToken, fallbackName) => {
+    let q = `?placeId=${encodeURIComponent(placeId)}`;
+    if (sessionToken) q += `&sessionToken=${encodeURIComponent(sessionToken)}`;
+    if (fallbackName) q += `&fallbackName=${encodeURIComponent(fallbackName)}`;
+    return request(`/routes/places/details${q}`, { method: 'GET' });
+  },
+
+  reverseGeocode: async (lat, lng) => {
+    return request(`/routes/places/reverse-geocode?lat=${lat}&lng=${lng}`, { method: 'GET' });
+  },
+
   // Smart Multimodal Route Planner
   planSmartRoute: async (origin, destination) => {
     return request('/routes/smart-plan', {
       method: 'POST',
       body: JSON.stringify({ origin, destination }),
+    });
+  },
+
+  rerouteJourney: async (currentLocation, destination, mode) => {
+    return request('/routes/reroute', {
+      method: 'POST',
+      body: JSON.stringify({ currentLocation, destination, mode }),
     });
   },
 
@@ -184,6 +210,18 @@ export const api = {
     return request('/rewards/my-redemptions', { method: 'GET' });
   },
 
+  trackPartnerClick: async (clickData) => {
+    try {
+      return await request('/rewards/track-click', {
+        method: 'POST',
+        body: JSON.stringify(clickData),
+      });
+    } catch (e) {
+      console.warn('[TrackPartnerClick] Fail-safe ignored:', e);
+      return { success: true };
+    }
+  },
+
   // Multimodal Mobility AI Verification Endpoints
   startMultimodalJourney: async (payload = {}) => {
     return request('/journey/start', {
@@ -196,6 +234,43 @@ export const api = {
     return request('/journey/sensor-data', {
       method: 'POST',
       body: JSON.stringify({ journeyId, sensorWindow }),
+    });
+  },
+
+  verifyEV: async (journeyId, payload) => {
+    return request(`/journey/${journeyId}/verify-ev`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  confirmPublicTransport: async (journeyId, payload) => {
+    return request(`/journey/${journeyId}/public-transport-confirm`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  getNearbyRoutes: async (lat, lng, radius = 2000) => {
+    const q = lat && lng ? `?lat=${lat}&lng=${lng}&radius=${radius}` : '';
+    return request(`/journey/nearby-routes${q}`, { method: 'GET' });
+  },
+
+  logVerificationEvent: async (journeyId, eventData) => {
+    return request(`/journey/${journeyId}/verification-event`, {
+      method: 'POST',
+      body: JSON.stringify(eventData),
+    });
+  },
+
+  getVerificationEvents: async (journeyId) => {
+    return request(`/journey/${journeyId}/events`, { method: 'GET' });
+  },
+
+  updateJourneySteps: async (journeyId, rawStepsDelta) => {
+    return request(`/journey/${journeyId}/steps`, {
+      method: 'POST',
+      body: JSON.stringify({ rawStepsDelta }),
     });
   },
 
@@ -252,8 +327,111 @@ export const api = {
     });
   },
 
+  // Network LAN IP for mobile handover QR
+  getNetworkIp: async () => {
+    return request('/network-ip', { method: 'GET' });
+  },
+
   // Health check
   getHealth: async () => {
     return request('/health', { method: 'GET' });
   },
+
+  // Transit — Nearby Stops
+  getNearbyTransitStops: async (lat, lng, radius = 3000) => {
+    return request(`/transit/stops/nearby?lat=${lat}&lng=${lng}&radius=${radius}`, { method: 'GET' });
+  },
+
+  // Transit — Search Routes
+  searchTransitRoutes: async (origin, destination, lat, lng) => {
+    let q = `?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`;
+    if (lat && lng) q += `&lat=${lat}&lng=${lng}`;
+    return request(`/transit/routes/search${q}`, { method: 'GET' });
+  },
+
+  // Transit — Upcoming Arrivals at a Stop
+  getUpcomingArrivals: async (stopId) => {
+    return request(`/transit/arrivals/${encodeURIComponent(stopId)}`, { method: 'GET' });
+  },
+
+  // Transit — Route Details
+  getTransitRouteDetails: async (routeId) => {
+    return request(`/transit/routes/${encodeURIComponent(routeId)}`, { method: 'GET' });
+  },
+
+  // Journey Segments — Start a Segment
+  startJourneySegment: async (journeyId, selectedMode, origin, destination, selectedRouteId, selectedRouteName, currentLocation) => {
+    return request(`/journey/${journeyId}/segments/start`, {
+      method: 'POST',
+      body: JSON.stringify({ selectedMode, origin, destination, selectedRouteId, selectedRouteName, currentLocation }),
+    });
+  },
+
+  // Journey Segments — Complete a Segment
+  completeJourneySegment: async (journeyId, segmentIndex, endLocation, finalSteps) => {
+    return request(`/journey/${journeyId}/segments/${segmentIndex}/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ endLocation, finalSteps }),
+    });
+  },
+
+  // Journey — Summary
+  getJourneySummary: async (journeyId) => {
+    return request(`/journey/${journeyId}/summary`, { method: 'GET' });
+  },
+
+  // Public Transport — Ticket Verification
+  verifyTicket: async (payload) => {
+    return request('/tickets/verify', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  claimPassengerSlot: async (ticketId, journeyId, isOwner = false) => {
+    return request(`/tickets/${ticketId}/claim-slot`, {
+      method: 'POST',
+      body: JSON.stringify({ journeyId, isOwner }),
+    });
+  },
+
+  getTicketDetails: async (ticketId) => {
+    return request(`/tickets/${ticketId}`, { method: 'GET' });
+  },
+
+  getTicketMockScenarios: async () => {
+    return request('/tickets/mock-scenarios', { method: 'GET' });
+  },
+
+  // Public Transport — Co-Traveller QR Handover
+  generateJourneyInvitationQR: async (journeyId, ticketId, slotIndex) => {
+    return request(`/journey/${journeyId}/generate-invitation-qr`, {
+      method: 'POST',
+      body: JSON.stringify({ ticketId, slotIndex }),
+    });
+  },
+
+  joinJourneyViaQR: async (journeyId, token) => {
+    return request(`/journey/${journeyId}/join-via-qr`, {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+  },
+
+  // Public Transport — Real GPS Point Streaming
+  appendGpsPoint: async (journeyId, gpsPoint) => {
+    return request(`/journey/${journeyId}/location`, {
+      method: 'POST',
+      body: JSON.stringify(gpsPoint),
+    });
+  },
+
+  // Public Transport — Link Ticket to Journey
+  linkTicketToJourney: async (journeyId, payload) => {
+    return request(`/journey/${journeyId}/link-ticket`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
 };
+

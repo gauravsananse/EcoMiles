@@ -20,6 +20,14 @@ const rewardRedemptionSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  partnerUrl: {
+    type: String,
+    default: 'https://in.fastandup.com/',
+  },
+  buttonText: {
+    type: String,
+    default: 'Shop Now',
+  },
   discountValue: {
     type: String,
     required: true,

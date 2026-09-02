@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Search, Loader2, ShieldCheck, AlertCircle } from 'lucide-react';
+import { useTranslation } from '../i18n/I18nContext';
 
 export default function VehicleSearch({ onVerify, isVerifying, disabled }) {
+  const { t } = useTranslation();
   const [regInput, setRegInput] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [validationError, setValidationError] = useState('');
@@ -43,10 +45,10 @@ export default function VehicleSearch({ onVerify, isVerifying, disabled }) {
     <div className="card" style={{ maxWidth: '640px', margin: '0 auto' }}>
       <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
         <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--slate-900)' }}>
-          Vehicle RC Verification
+          {t('ev.searchTitle')}
         </h2>
         <p style={{ fontSize: '0.9rem', color: 'var(--slate-500)', marginTop: '0.25rem' }}>
-          Enter your Indian vehicle registration number to verify official RC details and electric status.
+          {t('ev.searchSubtitle')}
         </p>
       </div>
 
@@ -60,7 +62,7 @@ export default function VehicleSearch({ onVerify, isVerifying, disabled }) {
             <input
               type="text"
               className="plate-input"
-              placeholder="MH12AB1234"
+              placeholder={t('ev.platePlaceholder')}
               value={regInput}
               onChange={handleInputChange}
               onFocus={() => setIsFocused(true)}
@@ -99,12 +101,12 @@ export default function VehicleSearch({ onVerify, isVerifying, disabled }) {
             {isVerifying ? (
               <>
                 <Loader2 size={18} className="animate-spin" />
-                <span>Verifying vehicle...</span>
+                <span>{t('ev.verifyingButton')}</span>
               </>
             ) : (
               <>
                 <Search size={18} />
-                <span>Verify Vehicle</span>
+                <span>{t('ev.verifyButton')}</span>
               </>
             )}
           </button>
@@ -123,7 +125,7 @@ export default function VehicleSearch({ onVerify, isVerifying, disabled }) {
         color: 'var(--slate-500)'
       }}>
         <ShieldCheck size={14} style={{ color: 'var(--primary-600)' }} />
-        <span>Connected to National Vahan RC Registry via secure provider adapter</span>
+        <span>{t('ev.connectedRegistry')}</span>
       </div>
     </div>
   );

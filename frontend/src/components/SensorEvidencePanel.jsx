@@ -27,9 +27,12 @@ export default function SensorEvidencePanel({ sensorData, isTracking }) {
     accelerationX = null,
     accelerationY = null,
     accelerationZ = null,
+    accelerationMagnitude = 0,
+    dynamicMagnitude = 0,
     rotationAlpha = null,
     rotationBeta = null,
     rotationGamma = null,
+    rotationalVelocity = 0,
     stepCount = 0,
     cadence = 0,
     walkingConfidence = 0,
@@ -39,12 +42,14 @@ export default function SensorEvidencePanel({ sensorData, isTracking }) {
     sensorAvailability = {},
   } = sensorData || {};
 
-  const accelMagnitude = (accelerationX !== null && accelerationY !== null && accelerationZ !== null)
-    ? Math.sqrt(Math.pow(accelerationX, 2) + Math.pow(accelerationY, 2) + Math.pow(accelerationZ - 9.81, 2))
-    : 0;
+  const effectiveDynamicMag = dynamicMagnitude || (
+    (accelerationX !== null && accelerationY !== null && accelerationZ !== null)
+      ? Math.abs(Math.sqrt(accelerationX * accelerationX + accelerationY * accelerationY + accelerationZ * accelerationZ) - 9.81)
+      : 0
+  );
 
-  const isWalkingPatternDetected = sensorAvailability.accelerometer && accelMagnitude >= 0.8 && accelMagnitude <= 4.5;
-  const isGyroMotionDetected = sensorAvailability.gyroscope && (rotationAlpha !== null || rotationBeta !== null);
+  const isWalkingPatternDetected = sensorAvailability.accelerometer && (effectiveDynamicMag >= 0.65 || (stepCount > 0 && cadence > 40));
+  const isGyroMotionDetected = sensorAvailability.gyroscope && (rotationalVelocity > 1.5 || rotationAlpha !== null);
 
   return (
     <div className="card" style={{ marginBottom: '1.5rem', overflow: 'hidden' }}>
@@ -97,7 +102,7 @@ export default function SensorEvidencePanel({ sensorData, isTracking }) {
               fontWeight: 700,
             }}>
               <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10b981' }} className="animate-pulse-subtle" />
-              Streaming (10 Hz)
+              Streaming Active
             </span>
           )}
           {isExpanded ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
@@ -155,7 +160,7 @@ export default function SensorEvidencePanel({ sensorData, isTracking }) {
                 </div>
                 {sensorAvailability.gps ? (
                   <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#059669', display: 'flex', alignItems: 'center', gap: '2px' }}>
-                    <CheckCircle2 size={12} /> Location Tracking
+                    <CheckCircle2 size={12} /> Active
                   </span>
                 ) : (
                   <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#dc2626', display: 'flex', alignItems: 'center', gap: '2px' }}>
@@ -164,8 +169,8 @@ export default function SensorEvidencePanel({ sensorData, isTracking }) {
                 )}
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--slate-600)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                <div>Speed: <strong>{speed.toFixed(1)} km/h</strong></div>
-                <div>Accuracy: <strong>&plusmn;{gpsAccuracy ? `${Math.round(gpsAccuracy)}m` : 'N/A'}</strong></div>
+                <div>Speed: <strong>{Number(speed || 0).toFixed(1)} km/h</strong></div>
+                <div>Accuracy: <strong>&plusmn;{gpsAccuracy ? `${Math.round(gpsAccuracy)}m` : 'Fixing...'}</strong></div>
                 <div>Heading: <strong>{heading ? `${Math.round(heading)}°` : '0°'}</strong></div>
               </div>
             </div>
@@ -194,15 +199,15 @@ export default function SensorEvidencePanel({ sensorData, isTracking }) {
               </div>
               {sensorAvailability.stepCounter ? (
                 <div style={{ fontSize: '0.75rem', color: 'var(--slate-600)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <div>Steps: <strong>{stepCount.toLocaleString()}</strong></div>
-                  <div>Cadence: <strong>{cadence} spm</strong></div>
-                  <div style={{ color: stepCount > 0 ? '#059669' : 'var(--slate-500)', fontWeight: 600 }}>
-                    {stepCount > 0 ? 'Pedometer peak verified ✓' : 'Awaiting walking strides'}
+                  <div>Steps: <strong style={{ fontSize: '0.9rem', color: 'var(--slate-900)' }}>{(stepCount || 0).toLocaleString()}</strong></div>
+                  <div>Cadence: <strong>{speed >= 7.8 ? '0 (Vehicular)' : `${cadence || 0} spm`}</strong></div>
+                  <div style={{ color: speed >= 7.8 ? '#d97706' : (stepCount > 0 ? '#059669' : 'var(--slate-500)'), fontWeight: 600 }}>
+                    {speed >= 7.8 ? 'Vehicular speed — Steps paused' : (stepCount > 0 ? 'Pedometer cadence verified ✓' : 'Awaiting 4-step walking rhythm')}
                   </div>
                 </div>
               ) : (
                 <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)', fontStyle: 'italic' }}>
-                  Step Counter: Not available on this device
+                  Step Counter: Requires mobile motion sensors
                 </div>
               )}
             </div>
@@ -231,15 +236,15 @@ export default function SensorEvidencePanel({ sensorData, isTracking }) {
               </div>
               {sensorAvailability.accelerometer && accelerationX !== null ? (
                 <div style={{ fontSize: '0.75rem', color: 'var(--slate-600)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <div>X: <strong>{accelerationX.toFixed(2)}</strong> | Y: <strong>{accelerationY.toFixed(2)}</strong></div>
-                  <div>Z: <strong>{accelerationZ.toFixed(2)} m/s²</strong></div>
+                  <div>X: <strong>{Number(accelerationX || 0).toFixed(2)}</strong> | Y: <strong>{Number(accelerationY || 0).toFixed(2)}</strong></div>
+                  <div>Z: <strong>{Number(accelerationZ || 0).toFixed(2)} m/s²</strong></div>
                   <div style={{ color: isWalkingPatternDetected ? '#059669' : 'var(--slate-600)', fontWeight: 600 }}>
-                    {isWalkingPatternDetected ? 'Walking pattern detected ✓' : `Dynamic RMS: ${accelMagnitude.toFixed(2)} m/s²`}
+                    {isWalkingPatternDetected ? 'Walking rhythm active ✓' : `Dynamic: ${effectiveDynamicMag.toFixed(2)} m/s²`}
                   </div>
                 </div>
               ) : (
                 <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)', fontStyle: 'italic' }}>
-                  Accelerometer: Not available on this device
+                  Accelerometer: Unavailable on this browser/platform
                 </div>
               )}
             </div>
@@ -268,15 +273,15 @@ export default function SensorEvidencePanel({ sensorData, isTracking }) {
               </div>
               {sensorAvailability.gyroscope && rotationAlpha !== null ? (
                 <div style={{ fontSize: '0.75rem', color: 'var(--slate-600)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <div>&alpha;: <strong>{rotationAlpha.toFixed(1)}°</strong> | &beta;: <strong>{(rotationBeta || 0).toFixed(1)}°</strong></div>
-                  <div>&gamma;: <strong>{(rotationGamma || 0).toFixed(1)}°</strong></div>
+                  <div>&alpha;: <strong>{Number(rotationAlpha || 0).toFixed(1)}°</strong> | &beta;: <strong>{Number(rotationBeta || 0).toFixed(1)}°</strong></div>
+                  <div>&gamma;: <strong>{Number(rotationGamma || 0).toFixed(1)}°</strong></div>
                   <div style={{ color: isGyroMotionDetected ? '#059669' : 'var(--slate-600)', fontWeight: 600 }}>
-                    {isGyroMotionDetected ? 'Motion detected ✓' : 'Stationary tilt'}
+                    {rotationalVelocity > 0 ? `Rot Rate: ${rotationalVelocity.toFixed(1)}°/s ✓` : (isGyroMotionDetected ? 'Motion detected ✓' : 'Stationary tilt')}
                   </div>
                 </div>
               ) : (
                 <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)', fontStyle: 'italic' }}>
-                  Gyroscope: Not available
+                  Gyroscope: Unavailable on this browser/platform
                 </div>
               )}
             </div>
