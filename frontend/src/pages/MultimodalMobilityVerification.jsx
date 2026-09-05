@@ -34,8 +34,7 @@ import {
   Flag,
   AlertTriangle,
   Layers,
-  Award,
-  QrCode
+  Award
 } from 'lucide-react';
 import MobilityMap from '../components/MobilityMap';
 import SensorEvidencePanel from '../components/SensorEvidencePanel';
@@ -46,13 +45,14 @@ import VerificationTimeline from '../components/VerificationTimeline';
 import BluetoothScannerModal from '../components/BluetoothScannerModal';
 import VehicleVerificationModal from '../components/VehicleVerificationModal';
 import DeveloperTestModeBar from '../components/DeveloperTestModeBar';
-import DesktopMobileHandoverModal from '../components/DesktopMobileHandoverModal';
 import PublicTransportHub from '../components/PublicTransportHub';
 import SegmentTransitionModal from '../components/SegmentTransitionModal';
 import FinalJourneySummaryModal from '../components/FinalJourneySummaryModal';
+import VerificationDebugPanel from '../components/VerificationDebugPanel';
 
 import { sensorManager } from '../services/sensorManager';
 import { walkingVerificationService } from '../services/walkingVerificationService';
+import { cyclingVerificationEngine } from '../services/cyclingVerificationEngine';
 import { stepCountingEngine } from '../services/stepCountingEngine';
 import { journeyStateMachine, JOURNEY_STATES } from '../services/journeyStateMachine';
 import { bluetoothEVService } from '../services/bluetoothEVService';
@@ -113,8 +113,6 @@ export default function MultimodalMobilityVerification({
   const { t } = useTranslation();
   // Device & Sensor Capability State
   const [deviceInfo, setDeviceInfo] = useState(sensorManager.getDeviceCapabilities());
-  const [showDesktopModal, setShowDesktopModal] = useState(false);
-  const [isDesktopMapOnlyMode, setIsDesktopMapOnlyMode] = useState(false);
   const [isPairedMobileClient, setIsPairedMobileClient] = useState(false);
 
   // Active Planned Route State
@@ -146,7 +144,7 @@ export default function MultimodalMobilityVerification({
 
   // AI Classification & Inference State
   const [currentMode, setCurrentMode] = useState(selectedRoute?.mode || 'WALK');
-  const [confidence, setConfidence] = useState(0.95);
+  const [confidence, setConfidence] = useState(0);
   const [probabilities, setProbabilities] = useState({
     walking: 0.05,
     cycling: 0.05,
@@ -196,6 +194,7 @@ export default function MultimodalMobilityVerification({
 
   // Submitting / Completion
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isStartingJourney, setIsStartingJourney] = useState(false);
   const [completionResult, setCompletionResult] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -260,10 +259,49 @@ export default function MultimodalMobilityVerification({
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
       const urlJourneyId = urlParams.get('journeyId');
+      const isPair = urlParams.get('pair') === 'true';
+
+      if (isPair) {
+        setIsPairedMobileClient(true);
+      }
 
       if (urlJourneyId) {
         setJourneyId(urlJourneyId);
         setIsPairedMobileClient(true);
+
+        // Pre-fetch paired journey so segments and routes are populated immediately
+        api.getJourneyDetails(urlJourneyId).then((res) => {
+          if (res && res.success && res.journey) {
+            const j = res.journey;
+            if (j.segments && j.segments.length > 0) {
+              setSegments(j.segments);
+              setActiveSegmentIndex(j.activeSegmentIndex || (j.segments.length - 1));
+            }
+            if (j.plannedRoute) {
+              setActivePlannedRoute(j.plannedRoute);
+              setRemainingCoords(j.plannedRoute.coordinates || null);
+              setRemainingDistanceKm(j.plannedRoute.distanceKm || 0);
+            }
+            if (j.plannedMode) {
+              setSelectedUserMode(j.plannedMode);
+              setCurrentMode(j.plannedMode);
+            }
+            if (j.totalDistanceKm) setTotalDistanceKm(j.totalDistanceKm);
+            if (j.totalGreenCredits) setTotalGreenCredits(j.totalGreenCredits);
+            if (j.totalFitnessPoints) setTotalFitnessPoints(j.totalFitnessPoints);
+            if (j.totalCombinedPoints) setTotalCombinedPoints(j.totalCombinedPoints);
+
+            // If desktop already started the journey, auto-resume tracking seamlessly on mobile
+            if (j.status === 'ACTIVE') {
+              journeyStateMachine.startJourney(urlJourneyId, j.currentMode || 'WALK', registeredVehicle);
+              setIsTracking(true);
+              setIsPaused(false);
+              sensorManager.startListening();
+            }
+          }
+        }).catch((err) => {
+          console.warn('[Mobile Pair] Failed to load paired journey details:', err.message);
+        });
       }
     }
 
@@ -315,7 +353,7 @@ export default function MultimodalMobilityVerification({
 
   // Cross-Device Telemetry Sync Polling
   useEffect(() => {
-    if (journeyId && (isTracking || showDesktopModal) && (!deviceInfo.isMobile || isTestMode === false)) {
+    if (journeyId && isTracking && (!deviceInfo.isMobile || isTestMode === false)) {
       syncPollRef.current = setInterval(async () => {
         try {
           const res = await api.getJourneyDetails(journeyId);
@@ -354,7 +392,7 @@ export default function MultimodalMobilityVerification({
       clearInterval(syncPollRef.current);
     }
     return () => clearInterval(syncPollRef.current);
-  }, [journeyId, isTracking, showDesktopModal, deviceInfo.isMobile, isTestMode]);
+  }, [journeyId, isTracking, deviceInfo.isMobile, isTestMode]);
 
   // Real-Time Off-Route Detection & Auto-Reroute Engine
   const checkOffRouteDeviation = useCallback(async (currentLat, currentLng, accuracy = 10) => {
@@ -501,6 +539,9 @@ export default function MultimodalMobilityVerification({
    * User confirms starting the selected transport mode
    */
   const handleConfirmAndStartMode = async (mode = selectedUserMode) => {
+    // Request motion permissions immediately on user touch/click for iOS Safari user gesture compliance
+    sensorManager.requestMotionPermissions().catch(() => {});
+
     const caps = sensorManager.getDeviceCapabilities();
     setDeviceInfo(caps);
 
@@ -508,31 +549,7 @@ export default function MultimodalMobilityVerification({
     setSelectedUserMode(chosenMode);
     setCurrentMode(chosenMode);
 
-    // If on Desktop/Laptop, trigger Desktop Detection Modal with QR Code for ALL modes
-    if (!caps.isMobile && !isTestMode && !isDesktopMapOnlyMode) {
-      try {
-        if (!journeyId) {
-          const res = await api.startMultimodalJourney({
-            isReplayData: false,
-            plannedMode: chosenMode,
-            origin: activePlannedRoute?.origin || { name: 'Origin' },
-            destination: activePlannedRoute?.destination || { name: 'Destination' },
-            plannedRoute: activePlannedRoute,
-            initialLocation: { lat: 18.5284, lng: 73.8744, accuracy: 5 },
-            sensorAvailability: caps,
-          });
-          if (res.success && res.journeyId) {
-            setJourneyId(res.journeyId);
-          }
-        }
-      } catch (err) {
-        console.warn('Failed pre-initializing journey for QR handover:', err.message);
-      }
-      setShowDesktopModal(true);
-      return;
-    }
-
-    // Proceed to mode-specific flow on mobile or when desktop proceed is active
+    // Proceed directly to mode-specific flow on any device (mobile, tablet, desktop)
     if (chosenMode === 'PUBLIC_TRANSPORT') {
       setShowPublicTransportHub(true);
       return;
@@ -561,7 +578,7 @@ export default function MultimodalMobilityVerification({
     }
 
     // Direct start for WALK or CYCLING
-    startActiveTrackingSession(null, chosenMode);
+    await startActiveTrackingSession(null, chosenMode);
   };
 
   /**
@@ -576,6 +593,7 @@ export default function MultimodalMobilityVerification({
    */
   const startActiveTrackingSession = async (presetJourneyId = null, modeToStart = 'WALK', routeInfo = null) => {
     setErrorMessage('');
+    setIsStartingJourney(true);
     setCompletionResult(null);
     setElapsedSeconds(0);
     setTotalDistanceKm(0);
@@ -585,35 +603,52 @@ export default function MultimodalMobilityVerification({
 
     const initialMode = modeToStart || selectedUserMode || 'WALK';
     setCurrentMode(initialMode);
-    stepCountingEngine.setTransportMode(initialMode, 0.95);
+    setConfidence(0);
+
+    const isCycling = initialMode === 'CYCLING';
+    const isWalking = initialMode === 'WALK' || initialMode === 'WALKING';
+
+    if (isCycling) {
+      cyclingVerificationEngine.resetJourney();
+      stepCountingEngine.setEnabled(false);
+      walkingVerificationService.setTransportMode('CYCLING');
+    } else {
+      walkingVerificationService.resetJourney();
+      walkingVerificationService.setTransportMode('WALK');
+      stepCountingEngine.reset();
+      stepCountingEngine.setEnabled(isWalking);
+    }
+
+    stepCountingEngine.setTransportMode(initialMode, 0);
+
+    setLiveSensorData({
+      ...sensorManager.getCurrentReading(),
+      stepCount: 0,
+      cadence: 0,
+      speed: 0,
+      distanceKm: 0,
+      walkingConfidence: isCycling ? null : 0,
+      cyclingConfidence: isCycling ? 0 : null,
+      confidence: 0,
+      isWalkingVerified: false,
+      isCyclingVerified: false,
+      walkingStatus: isCycling ? 'NOT VERIFIED' : 'Not enough walking evidence',
+      verificationState: isCycling ? 'NOT VERIFIED' : 'Not enough walking evidence',
+    });
+
+    setStepCounts({
+      rawSteps: 0,
+      baselineSteps: 0,
+      sessionSteps: 0,
+      verifiedSteps: 0,
+      verifiedWalkingSteps: 0,
+      estimatedSteps: 0,
+      stepCountingEnabled: isWalking,
+    });
 
     try {
       if (!isTestMode) {
-        await sensorManager.startListening();
-
-        if (navigator.geolocation) {
-          geoWatchIdRef.current = navigator.geolocation.watchPosition(
-            (pos) => {
-              const { latitude, longitude, accuracy, speed, heading } = pos.coords;
-              setLiveSensorData((prev) => ({
-                ...prev,
-                latitude,
-                longitude,
-                gpsAccuracy: accuracy,
-                speed: speed !== null && speed >= 0 ? speed * 3.6 : prev.speed,
-                heading: heading !== null && heading >= 0 ? heading : prev.heading,
-              }));
-            },
-            (err) => {
-              console.warn('[Geolocation Watch error]:', err.message);
-            },
-            {
-              enableHighAccuracy: true,
-              timeout: 10000,
-              maximumAge: 2000,
-            }
-          );
-        }
+        await sensorManager.startListening(initialMode);
       }
 
       const initialReading = sensorManager.getCurrentReading();
@@ -643,9 +678,27 @@ export default function MultimodalMobilityVerification({
           setIsPaused(false);
           setShowPublicTransportHub(false);
           setShowModeSelector(false);
+        } else {
+          throw new Error(res.error || 'Failed to start journey on server.');
         }
       } else {
         setJourneyId(activeTargetId);
+        // Sync segments from backend if not yet loaded
+        if (segments.length === 0) {
+          try {
+            const jRes = await api.getJourneyDetails(activeTargetId);
+            if (jRes && jRes.success && jRes.journey) {
+              setSegments(jRes.journey.segments || []);
+              setActiveSegmentIndex(jRes.journey.activeSegmentIndex || 0);
+              if (jRes.journey.plannedRoute && !activePlannedRoute) {
+                setActivePlannedRoute(jRes.journey.plannedRoute);
+                setRemainingCoords(jRes.journey.plannedRoute.coordinates || null);
+              }
+            }
+          } catch (syncErr) {
+            console.warn('[Segment sync warning]:', syncErr.message);
+          }
+        }
         journeyStateMachine.startJourney(activeTargetId, initialMode, registeredVehicle);
         setIsTracking(true);
         setIsPaused(false);
@@ -654,7 +707,9 @@ export default function MultimodalMobilityVerification({
       }
     } catch (err) {
       console.error('Failed to start journey:', err);
-      setErrorMessage(err.message || 'Failed to start navigation session.');
+      setErrorMessage(err.message || 'Failed to start navigation session. Check network or sensor permissions.');
+    } finally {
+      setIsStartingJourney(false);
     }
   };
 
@@ -998,7 +1053,7 @@ export default function MultimodalMobilityVerification({
   const activeStep = activePlannedRoute?.steps?.[currentStepIndex] || null;
 
   return (
-    <div className="main-content">
+    <div className="main-content" style={{ paddingBottom: isTracking ? '5.5rem' : undefined }}>
       {/* Page Header */}
       <div className="page-header">
         <div className="badge-tag">
@@ -1020,7 +1075,25 @@ export default function MultimodalMobilityVerification({
 
         {/* Device Mode Badge */}
         <div style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-          {deviceInfo.isMobile ? (
+          {isPairedMobileClient && (
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              background: '#ecfdf5',
+              color: '#065f46',
+              border: '1.5px solid #10b981',
+              padding: '4px 12px',
+              borderRadius: '9999px',
+              fontSize: '0.8rem',
+              fontWeight: 800,
+            }}>
+              <CheckCircle2 size={14} className="text-emerald-600" />
+              <span>📱 Paired Mobile Device Connected</span>
+            </span>
+          )}
+
+          {deviceInfo.isMobile || isPairedMobileClient ? (
             <span style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -1034,54 +1107,27 @@ export default function MultimodalMobilityVerification({
               fontWeight: 700,
             }}>
               <Smartphone size={14} className="text-emerald-600" />
-              <span>📱 Mobile Sensors Active</span>
+              <span>📱 Hardware Sensors Active</span>
             </span>
           ) : (
             <span
-              onClick={() => setShowDesktopModal(true)}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '5px',
-                background: '#fffbeb',
-                color: '#92400e',
-                border: '1px solid #fde68a',
+                background: '#f1f5f9',
+                color: 'var(--slate-600)',
+                border: '1px solid var(--slate-200)',
                 padding: '3px 10px',
                 borderRadius: '9999px',
                 fontSize: '0.78rem',
-                fontWeight: 700,
-                cursor: 'pointer',
+                fontWeight: 600,
               }}
-              title="Click to scan QR code with mobile phone"
             >
-              <AlertCircle size={14} className="text-amber-600" />
-              <span>💻 Desktop Simulation Mode</span>
+              <AlertCircle size={14} className="text-slate-500" />
+              <span>🌐 Web GPS Active</span>
             </span>
           )}
-
-          {/* Mobile QR Handover Button */}
-          <button
-            type="button"
-            onClick={() => setShowDesktopModal(true)}
-            className="btn btn-secondary"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '5px',
-              background: '#eff6ff',
-              color: '#1d4ed8',
-              border: '1px solid #bfdbfe',
-              padding: '3px 10px',
-              borderRadius: '9999px',
-              fontSize: '0.78rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-            }}
-            title="Scan QR with your phone to use hardware sensors"
-          >
-            <QrCode size={14} className="text-blue-600" />
-            <span>📱 Mobile QR Handover</span>
-          </button>
 
           {/* Active Segment Badge */}
           {isTracking && (
@@ -1121,6 +1167,36 @@ export default function MultimodalMobilityVerification({
         </div>
       </div>
 
+      {/* Top Level Error Alert */}
+      {errorMessage && (
+        <div style={{
+          maxWidth: '850px',
+          margin: '0 auto 1.25rem',
+          background: '#fff1f2',
+          border: '1.5px solid #fecdd3',
+          color: '#be123c',
+          borderRadius: '12px',
+          padding: '0.85rem 1.15rem',
+          fontSize: '0.86rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '0.75rem',
+          boxShadow: '0 2px 8px rgba(190, 18, 60, 0.08)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <AlertCircle size={18} style={{ flexShrink: 0 }} />
+            <span>{errorMessage}</span>
+          </div>
+          <button
+            onClick={() => setErrorMessage('')}
+            style={{ background: 'none', border: 'none', color: '#be123c', cursor: 'pointer', fontWeight: 800, fontSize: '0.85rem', padding: '2px 6px' }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Developer Test Mode Bar with Section 47/48 Triggers */}
       <DeveloperTestModeBar
         isTestMode={isTestMode}
@@ -1150,7 +1226,7 @@ export default function MultimodalMobilityVerification({
             {showModeSelector ? 'What mode will you use for the next segment?' : 'How would you like to travel today?'}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+          <div className="mode-grid-selector" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
             {/* WALK */}
             <div
               onClick={() => handleSelectMode('WALK')}
@@ -1299,54 +1375,38 @@ export default function MultimodalMobilityVerification({
 
             <button
               onClick={() => {
+                if (isStartingJourney) return;
                 if (showModeSelector) handleStartNextSegment(selectedUserMode);
                 else handleConfirmAndStartMode(selectedUserMode);
               }}
+              disabled={isStartingJourney}
               className="btn btn-primary btn-lg"
               style={{
-                padding: '0.75rem 1.5rem',
-                fontSize: '1rem',
+                padding: '0.85rem 1.75rem',
+                fontSize: '1.05rem',
                 fontWeight: 800,
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
-                minWidth: '220px',
+                gap: '10px',
+                minWidth: '240px',
                 justifyContent: 'center',
+                boxShadow: '0 4px 14px rgba(5, 150, 105, 0.35)',
+                cursor: isStartingJourney ? 'not-allowed' : 'pointer',
               }}
             >
-              <Navigation size={18} fill="#ffffff" />
-              <span>{showModeSelector ? `Start Next Segment (${selectedUserMode})` : `Confirm & Start ${selectedUserMode}`}</span>
+              {isStartingJourney ? (
+                <>
+                  <Loader2 size={20} className="animate-spin" />
+                  <span>Starting {selectedUserMode}...</span>
+                </>
+              ) : (
+                <>
+                  <Navigation size={20} fill="#ffffff" />
+                  <span>{showModeSelector ? `Start Next Segment (${selectedUserMode})` : `Confirm & Start ${selectedUserMode}`}</span>
+                </>
+              )}
             </button>
           </div>
-
-          {!deviceInfo.isMobile && !isTestMode && !isDesktopMapOnlyMode && (
-            <div style={{
-              background: '#fffbeb',
-              border: '1px solid #fde68a',
-              borderRadius: '8px',
-              padding: '0.6rem 0.85rem',
-              fontSize: '0.78rem',
-              color: '#92400e',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: '0.5rem',
-              marginBottom: '0.5rem',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <QrCode size={16} className="text-amber-600" />
-                <span><strong>Desktop Detection:</strong> When you click Start, the QR code popup will appear to pair mobile hardware sensors.</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowDesktopModal(true)}
-                style={{ background: 'none', border: 'none', color: '#1d4ed8', fontWeight: 800, cursor: 'pointer', fontSize: '0.78rem', textDecoration: 'underline', padding: 0 }}
-              >
-                Scan Mobile QR Now
-              </button>
-            </div>
-          )}
 
           {showModeSelector && (
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
@@ -1503,22 +1563,11 @@ export default function MultimodalMobilityVerification({
                 <Bluetooth size={15} className="text-blue-600" />
                 <span>BLE Scanner</span>
               </button>
-
-              <button
-                type="button"
-                onClick={() => setShowDesktopModal(true)}
-                className="btn btn-secondary"
-                style={{ fontSize: '0.8rem', padding: '0.4rem 0.85rem' }}
-                title="Scan QR to stream real mobile phone sensors"
-              >
-                <QrCode size={15} className="text-blue-600" />
-                <span>Mobile QR</span>
-              </button>
             </div>
           </div>
 
           {/* Live Real-Time Metrics Screen */}
-          <div style={{
+          <div className="live-hud-grid" style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
             gap: '0.75rem',
@@ -1555,18 +1604,32 @@ export default function MultimodalMobilityVerification({
               </div>
             </div>
 
-            {/* Verified Walking Steps */}
-            <div style={{ background: 'var(--slate-50)', borderRadius: '12px', padding: '0.85rem' }}>
-              <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--slate-400)' }}>
-                Verified Steps
+            {/* Cycling Confidence or Verified Walking Steps */}
+            {currentMode === 'CYCLING' ? (
+              <div style={{ background: 'var(--slate-50)', borderRadius: '12px', padding: '0.85rem' }}>
+                <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--slate-400)' }}>
+                  Cycling Confidence
+                </div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.45rem', fontWeight: 800, color: '#0284c7', marginTop: '0.2rem' }}>
+                  {Math.round(liveSensorData.cyclingConfidence || 0)}%
+                </div>
+                <div style={{ fontSize: '0.68rem', color: liveSensorData.isCyclingVerified ? '#059669' : '#d97706', fontWeight: 700 }}>
+                  {liveSensorData.isCyclingVerified ? '● Verified Cycling' : '○ Evaluating Cadence'}
+                </div>
               </div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.45rem', fontWeight: 800, color: '#059669', marginTop: '0.2rem' }}>
-                {(stepCounts.verifiedWalkingSteps || 0).toLocaleString()}
+            ) : (
+              <div style={{ background: 'var(--slate-50)', borderRadius: '12px', padding: '0.85rem' }}>
+                <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--slate-400)' }}>
+                  Verified Steps
+                </div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.45rem', fontWeight: 800, color: '#059669', marginTop: '0.2rem' }}>
+                  {(stepCounts.verifiedWalkingSteps || 0).toLocaleString()}
+                </div>
+                <div style={{ fontSize: '0.68rem', color: stepCounts.stepCountingEnabled ? '#059669' : '#94a3b8', fontWeight: 700 }}>
+                  {stepCounts.stepCountingEnabled ? '● Step Sensor ON' : '○ Inactive / Locked'}
+                </div>
               </div>
-              <div style={{ fontSize: '0.68rem', color: stepCounts.stepCountingEnabled ? '#059669' : '#94a3b8', fontWeight: 700 }}>
-                {stepCounts.stepCountingEnabled ? '● Step Sensor ON' : '○ Vehicular Lockout'}
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Real-Time Dual Rewards Accumulation Banner */}
@@ -1820,7 +1883,11 @@ export default function MultimodalMobilityVerification({
         <SensorEvidencePanel
           sensorData={liveSensorData}
           isTracking={isTracking}
+          currentMode={currentMode}
         />
+
+        {/* Dev Verification Debug Panel (Section 22) */}
+        <VerificationDebugPanel currentMode={currentMode} />
 
         {/* AI Explanation Panel */}
         <AIExplanationPanel
@@ -1871,16 +1938,131 @@ export default function MultimodalMobilityVerification({
         }}
       />
 
-      {/* Desktop / Laptop Handover Modal */}
-      <DesktopMobileHandoverModal
-        isOpen={showDesktopModal}
-        onClose={() => setShowDesktopModal(false)}
-        journeyId={journeyId}
-        onProceedDesktopMapOnly={() => {
-          setIsDesktopMapOnlyMode(true);
-          startActiveTrackingSession();
-        }}
-      />
+      {/* Persistent Floating Journey Controls (Always in view on mobile & compact screens) */}
+      {isTracking && (
+        <div className="floating-journey-controls" style={{
+          position: 'fixed',
+          left: 0,
+          right: 0,
+          zIndex: 999,
+          background: 'rgba(15, 23, 42, 0.94)',
+          backdropFilter: 'blur(12px)',
+          borderTop: '1px solid rgba(255, 255, 255, 0.12)',
+          padding: '0.65rem 1rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '0.6rem',
+          boxShadow: '0 -4px 20px rgba(0,0,0,0.35)',
+        }}>
+          {/* Left: Active Segment Mode & Telemetry */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minWidth: 0, flex: 1 }}>
+            <div style={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '10px',
+              background: currentMode === 'EV' ? '#fef3c7' : (currentMode === 'BUS' || currentMode === 'PUBLIC_TRANSPORT' ? '#eff6ff' : '#ecfdf5'),
+              color: currentMode === 'EV' ? '#d97706' : (currentMode === 'BUS' || currentMode === 'PUBLIC_TRANSPORT' ? '#2563eb' : '#059669'),
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <CurrentModeIcon size={20} />
+            </div>
+
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: '0.84rem', fontWeight: 800, color: '#ffffff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                Seg {activeSegmentIndex + 1}: {currentMode}
+                {(currentMode === 'CYCLING' ? liveSensorData.isCyclingVerified : isWalkingVerified) && <span style={{ color: '#10b981', marginLeft: '5px' }}>✓</span>}
+              </div>
+              <div style={{ fontSize: '0.72rem', color: '#94a3b8', display: 'flex', gap: '6px', fontFamily: 'var(--font-mono)' }}>
+                <span>{Number(liveSensorData.speed || 0).toFixed(1)} km/h</span>
+                <span>&bull;</span>
+                {currentMode === 'CYCLING' ? (
+                  <span>{Math.round(liveSensorData.cyclingConfidence || 0)}% Conf</span>
+                ) : (
+                  <span>{(stepCounts.verifiedWalkingSteps || 0).toLocaleString()} steps</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Segment Options & End Journey Buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexShrink: 0 }}>
+            {/* Pause / Resume */}
+            <button
+              onClick={() => {
+                if (isPaused) {
+                  setIsPaused(false);
+                  journeyStateMachine.resumeJourney();
+                } else {
+                  setIsPaused(true);
+                  journeyStateMachine.pauseJourney();
+                }
+              }}
+              style={{
+                background: isPaused ? '#10b981' : '#334155',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '0.5rem 0.65rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              title={isPaused ? 'Resume' : 'Pause'}
+            >
+              {isPaused ? <Play size={16} fill="#ffffff" /> : <Pause size={16} fill="#ffffff" />}
+            </button>
+
+            {/* Stop Segment (Continue / Transition workflow) */}
+            <button
+              onClick={handleStopCurrentSegment}
+              style={{
+                background: '#0284c7',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '0.52rem 0.85rem',
+                fontSize: '0.8rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                boxShadow: '0 2px 8px rgba(2, 132, 199, 0.35)',
+              }}
+            >
+              <Square size={13} fill="#ffffff" />
+              <span>Next Segment</span>
+            </button>
+
+            {/* End Entire Journey */}
+            <button
+              onClick={() => setShowEndConfirmModal(true)}
+              style={{
+                background: '#be123c',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '0.52rem 0.85rem',
+                fontSize: '0.8rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                boxShadow: '0 2px 8px rgba(190, 18, 60, 0.35)',
+              }}
+            >
+              <ShieldCheck size={14} />
+              <span>End Journey</span>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

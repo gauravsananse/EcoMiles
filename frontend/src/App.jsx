@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
+import MobileBottomNav from './components/MobileBottomNav';
 import MultimodalMobilityVerification from './pages/MultimodalMobilityVerification';
 import EVRegistration from './pages/EVRegistration';
 import SmartRoutePlanner from './pages/SmartRoutePlanner';
@@ -12,10 +13,30 @@ import { I18nProvider, useTranslation } from './i18n/I18nContext';
 
 function AppContent() {
   const [user, setUser] = useState(getStoredUser());
-  const [activeTab, setActiveTab] = useState('routes'); // Default to routes for direct route planning experience
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam) return tabParam;
+      if (params.get('journeyId') || params.get('pair')) return 'tracker';
+    }
+    return 'routes';
+  });
   const [selectedRouteToTrack, setSelectedRouteToTrack] = useState(null);
   const [authModal, setAuthModal] = useState(null); // 'login' | 'register' | null
   const { t } = useTranslation();
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam) {
+        setActiveTab(tabParam);
+      } else if (params.get('journeyId') || params.get('pair')) {
+        setActiveTab('tracker');
+      }
+    }
+  }, []);
 
   useEffect(() => {
     // Validate session if user token exists
@@ -130,6 +151,12 @@ function AppContent() {
           {t('footer.subtagline')}
         </div>
       </footer>
+
+      {/* Mobile-First App Bottom Navigation Bar */}
+      <MobileBottomNav
+        activeTab={activeTab}
+        onSelectTab={(tab) => setActiveTab(tab)}
+      />
     </div>
   );
 }

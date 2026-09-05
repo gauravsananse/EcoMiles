@@ -32,7 +32,7 @@ class JourneyStateMachine {
       status: JOURNEY_STATES.READY,
       detectedMode: 'STATIONARY',
       verifiedMode: 'STATIONARY',
-      confidence: 0.95,
+      confidence: 0,
       verificationStatus: 'UNVERIFIED', // 'UNVERIFIED' | 'VERIFYING' | 'VERIFIED' | 'WARNING' | 'FAILED'
       activeSegmentId: null,
       stepCountingEnabled: true,
@@ -78,8 +78,8 @@ class JourneyStateMachine {
       status: startState,
       detectedMode: initialMode,
       verifiedMode: initialMode,
-      confidence: 0.95,
-      verificationStatus: 'VERIFIED',
+      confidence: 0,
+      verificationStatus: 'UNVERIFIED',
       stepCountingEnabled: !isCycling,
       greenCreditEligible: true,
       lastVerificationTime: Date.now(),
@@ -97,7 +97,7 @@ class JourneyStateMachine {
       ],
     };
 
-    stepCountingEngine.setTransportMode(initialMode, 0.95);
+    stepCountingEngine.setTransportMode(initialMode, 0);
     this.notify();
   }
 

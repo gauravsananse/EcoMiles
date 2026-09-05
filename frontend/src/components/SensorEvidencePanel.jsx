@@ -15,7 +15,7 @@ import {
   Sparkles
 } from 'lucide-react';
 
-export default function SensorEvidencePanel({ sensorData, isTracking }) {
+export default function SensorEvidencePanel({ sensorData, isTracking, currentMode = 'WALK' }) {
   const [isExpanded, setIsExpanded] = useState(true);
 
   const {
@@ -36,11 +36,17 @@ export default function SensorEvidencePanel({ sensorData, isTracking }) {
     stepCount = 0,
     cadence = 0,
     walkingConfidence = 0,
+    cyclingConfidence = 0,
     isWalkingVerified = false,
+    isCyclingVerified = false,
     walkingStatus = '',
     bluetoothSignals = [],
     sensorAvailability = {},
   } = sensorData || {};
+
+  const isCycling = (currentMode || '').toUpperCase() === 'CYCLING';
+  const effectiveConfidence = isCycling ? (cyclingConfidence || 0) : (walkingConfidence || 0);
+  const isVerified = isCycling ? isCyclingVerified : isWalkingVerified;
 
   const effectiveDynamicMag = dynamicMagnitude || (
     (accelerationX !== null && accelerationY !== null && accelerationZ !== null)
@@ -111,10 +117,10 @@ export default function SensorEvidencePanel({ sensorData, isTracking }) {
 
       {isExpanded && (
         <div style={{ marginTop: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          {/* Walking Verification Live Score Bar */}
+          {/* Activity Verification Live Score Bar */}
           <div style={{
-            background: isWalkingVerified ? 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)' : '#f8fafc',
-            border: `1px solid ${isWalkingVerified ? '#a7f3d0' : 'var(--slate-200)'}`,
+            background: isVerified ? 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)' : '#f8fafc',
+            border: `1px solid ${isVerified ? '#a7f3d0' : 'var(--slate-200)'}`,
             borderRadius: '12px',
             padding: '0.75rem 1rem',
             display: 'flex',
@@ -124,13 +130,13 @@ export default function SensorEvidencePanel({ sensorData, isTracking }) {
             gap: '0.5rem',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Sparkles size={16} className={isWalkingVerified ? 'text-emerald-600' : 'text-slate-400'} />
+              <Sparkles size={16} className={isVerified ? 'text-emerald-600' : 'text-slate-400'} />
               <div>
                 <span style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--slate-900)' }}>
-                  Walking Confidence: {walkingConfidence}%
+                  {isCycling ? `Cycling Confidence: ${effectiveConfidence}%` : `Walking Confidence: ${effectiveConfidence}%`}
                 </span>
-                <span style={{ fontSize: '0.75rem', marginLeft: '0.5rem', fontWeight: 700, color: isWalkingVerified ? '#059669' : '#64748b' }}>
-                  {isWalkingVerified ? 'Walking Verified ✓' : (walkingStatus || 'Sensor fusion evaluating')}
+                <span style={{ fontSize: '0.75rem', marginLeft: '0.5rem', fontWeight: 700, color: isVerified ? '#059669' : '#64748b' }}>
+                  {isVerified ? (isCycling ? 'Cycling Verified ✓' : 'Walking Verified ✓') : (walkingStatus || 'Sensor fusion evaluating')}
                 </span>
               </div>
             </div>
@@ -187,7 +193,11 @@ export default function SensorEvidencePanel({ sensorData, isTracking }) {
                   <Footprints size={15} className="text-emerald-600" />
                   <span>Step Counter</span>
                 </div>
-                {sensorAvailability.stepCounter ? (
+                {isCycling ? (
+                  <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#b45309', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                    <AlertCircle size={12} /> Disabled in Cycling
+                  </span>
+                ) : sensorAvailability.stepCounter ? (
                   <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#059669', display: 'flex', alignItems: 'center', gap: '2px' }}>
                     <CheckCircle2 size={12} /> Active
                   </span>
@@ -197,7 +207,14 @@ export default function SensorEvidencePanel({ sensorData, isTracking }) {
                   </span>
                 )}
               </div>
-              {sensorAvailability.stepCounter ? (
+              {isCycling ? (
+                <div style={{ fontSize: '0.75rem', color: 'var(--slate-500)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                  <div>Steps: <strong style={{ fontSize: '0.9rem', color: '#64748b' }}>Disabled</strong></div>
+                  <div style={{ color: '#b45309', fontWeight: 600 }}>
+                    Strictly locked during cycling (zero false steps)
+                  </div>
+                </div>
+              ) : sensorAvailability.stepCounter ? (
                 <div style={{ fontSize: '0.75rem', color: 'var(--slate-600)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <div>Steps: <strong style={{ fontSize: '0.9rem', color: 'var(--slate-900)' }}>{(stepCount || 0).toLocaleString()}</strong></div>
                   <div>Cadence: <strong>{speed >= 7.8 ? '0 (Vehicular)' : `${cadence || 0} spm`}</strong></div>

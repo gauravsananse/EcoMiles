@@ -39,6 +39,7 @@ const transportIntelligenceRoutes = require('./routes/transportIntelligenceRoute
 const rewardRoutes = require('./routes/rewardRoutes');
 const transitRoutes = require('./routes/transitRoutes');
 const fraudRoutes = require('./routes/fraudRoutes');
+const metroRoutes = require('./routes/metroRoutes');
 
 // Mount Routes
 app.use('/api/auth', authRoutes);
@@ -50,6 +51,7 @@ app.use('/api/city', transportIntelligenceRoutes);
 app.use('/api/rewards', rewardRoutes);
 app.use('/api/transit', transitRoutes);
 app.use('/api/fraud', fraudRoutes);
+app.use('/api/metro', metroRoutes);
 
 const os = require('os');
 const tunnelService = require('./services/tunnelService');

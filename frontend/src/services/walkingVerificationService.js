@@ -32,6 +32,12 @@ export class WalkingVerificationService {
     this.currentMode = 'STATIONARY';
     this.currentGpsSpeed = 0;
 
+    // Confidence & Rhythm Tracking
+    this.currentWalkingConfidence = 0;
+    this.lastConfidenceUpdateTime = Date.now();
+    this.continuousWalkingStartTime = 0;
+    this.stationaryStartTime = Date.now();
+
     // Peak detector state machine
     this.state = 'ARMED'; // 'ARMED' | 'RISING' | 'FALLING' | 'REFRACTORY'
     this.currentPeak = 0;
@@ -43,6 +49,12 @@ export class WalkingVerificationService {
     this.lastValidLocation = null;
     this.anchorLocation = null;
     this.recentSpeeds = []; // Rolling speed buffer for smoothing
+
+    // Step-to-Distance Cross-Validation (Fraud Detection)
+    this.stepDistanceRatioHistory = []; // Rolling buffer of ratio samples for stability
+    this.lastStepDistanceFlag = null;   // 'VEHICLE_TAPPING' | 'STATIONARY_TAPPING' | 'PLAUSIBLE' | null
+    this.lastGpsAccuracy = null;        // Most recent GPS accuracy in metres
+    this.lastGpsTimestamp = null;       // Timestamp of most recent GPS fix
   }
 
   /**
@@ -102,7 +114,7 @@ export class WalkingVerificationService {
   }
 
   /**
-   * Reset session metrics
+   * Reset session metrics completely to zero
    */
   resetJourney() {
     this.stepCount = 0;
@@ -115,7 +127,8 @@ export class WalkingVerificationService {
     this.recentPeaks = [];
     this.recentSteps = [];
     this.unconfirmedStepTimestamps = [];
-    this.sessionStartTime = 0;
+    this.sessionStartTime = Date.now();
+    this.startupGraceDurationMs = 1200; // 1.2s to fully discard initial touch/tap
     this.currentMode = 'STATIONARY';
     this.currentGpsSpeed = 0;
     this.state = 'ARMED';
@@ -126,6 +139,12 @@ export class WalkingVerificationService {
     this.lastValidLocation = null;
     this.anchorLocation = null;
     this.recentSpeeds = [];
+    this.stepDistanceRatioHistory = [];
+    this.lastStepDistanceFlag = null;
+    this.currentWalkingConfidence = 0;
+    this.lastConfidenceUpdateTime = Date.now();
+    this.continuousWalkingStartTime = 0;
+    this.stationaryStartTime = Date.now();
   }
 
   /**
@@ -254,48 +273,22 @@ export class WalkingVerificationService {
             // Set refractory cooldown for any registered candidate step (230ms)
             this.refractoryUntil = timestamp + 230;
 
-            if (isCurrentlyWalking) {
-              // Active walking rhythm is already verified: process consecutive steps
-              const timeSinceLastStep = timestamp - this.lastStepTimestamp;
-              if (timeSinceLastStep >= 230 && timeSinceLastStep <= 2000) {
-                this.stepCount++;
-                this.lastStepTimestamp = timestamp;
-                this.recentSteps.push(timestamp);
-                if (this.recentSteps.length > 10) this.recentSteps.shift();
+            const timeSinceLastStep = this.lastStepTimestamp > 0 ? (timestamp - this.lastStepTimestamp) : 999999;
+            const isGenuineFootstrike = this.currentPeak >= 0.55 && (this.currentPeak - this.currentValley >= 0.40);
 
-                this.recentPeaks.push(this.currentPeak);
-                if (this.recentPeaks.length > 6) this.recentPeaks.shift();
+            // Genuine human footstep detected: increment by exactly 1
+            if (isGenuineFootstrike && timeSinceLastStep >= 280) {
+              this.stepCount++;
+              this.lastStepTimestamp = timestamp;
+              this.lastCandidateTimestamp = timestamp;
+              this.recentSteps.push(timestamp);
+              if (this.recentSteps.length > 10) this.recentSteps.shift();
 
-                stepDetected = true;
-              } else if (timeSinceLastStep > 2000) {
-                // Gait rhythm was paused, restart cadence confirmation buffer
-                this.unconfirmedStepTimestamps = [timestamp];
-                this.lastCandidateTimestamp = timestamp;
-              }
-            } else {
-              // Not yet walking / resumed after pause: require 3 consecutive rhythmic strides (230ms - 1800ms)
-              if (timeSinceLastCandidate >= 230 && timeSinceLastCandidate <= 1800) {
-                this.unconfirmedStepTimestamps.push(timestamp);
-                this.lastCandidateTimestamp = timestamp;
+              this.recentPeaks.push(this.currentPeak);
+              if (this.recentPeaks.length > 6) this.recentPeaks.shift();
 
-                if (this.unconfirmedStepTimestamps.length >= 3) {
-                  // Confirmed continuous human gait! Credit all buffered steps at once
-                  this.stepCount += this.unconfirmedStepTimestamps.length;
-                  this.lastStepTimestamp = timestamp;
-                  this.recentSteps.push(...this.unconfirmedStepTimestamps);
-                  if (this.recentSteps.length > 10) this.recentSteps = this.recentSteps.slice(-10);
-
-                  this.recentPeaks.push(this.currentPeak);
-                  if (this.recentPeaks.length > 6) this.recentPeaks.shift();
-
-                  this.unconfirmedStepTimestamps = [];
-                  stepDetected = true;
-                }
-              } else {
-                // First candidate peak in session or after stationary interval
-                this.unconfirmedStepTimestamps = [timestamp];
-                this.lastCandidateTimestamp = timestamp;
-              }
+              stepDetected = true;
+              this.refractoryUntil = timestamp + 260;
             }
 
             this.state = 'ARMED';
@@ -358,8 +351,12 @@ export class WalkingVerificationService {
 
   /**
    * Process Real GPS Update and calculate exact cumulative distance & speed
+   * Strictly filters GPS jitter, rejects synthetic cadence speed, and handles stationary states.
    */
   processGpsPosition({ latitude, longitude, accuracy, speed, timestamp = Date.now() }) {
+    this.lastGpsTimestamp = timestamp;
+    this.lastGpsAccuracy = accuracy ? Math.round(accuracy) : null;
+
     if (!latitude || !longitude) {
       return {
         distanceKm: Number(this.totalDistanceKm.toFixed(3)),
@@ -369,10 +366,20 @@ export class WalkingVerificationService {
     }
 
     let instantaneousSpeedKmh = 0;
-    const hasHardwareSpeed = speed !== null && speed !== undefined && !isNaN(speed) && speed > 0.25;
+    // coords.speed from browser Geolocation API is in meters/second
+    const hasHardwareSpeed = speed !== null && speed !== undefined && !isNaN(speed) && speed >= 0;
 
     if (hasHardwareSpeed) {
-      instantaneousSpeedKmh = speed * 3.6;
+      // Filter stationary GPS jitter (< 0.25 m/s is ~0.9 km/h)
+      if (speed < 0.25) {
+        instantaneousSpeedKmh = 0;
+      } else {
+        instantaneousSpeedKmh = speed * 3.6;
+        // Damp if accuracy is poor (> 35m)
+        if (accuracy && accuracy > 35) {
+          instantaneousSpeedKmh = Math.min(instantaneousSpeedKmh, 5.0);
+        }
+      }
     }
 
     if (this.lastValidLocation) {
@@ -383,6 +390,7 @@ export class WalkingVerificationService {
         latitude,
         longitude
       );
+      const distMeters = dKm * 1000;
 
       // Distance from displacement anchor to prevent discarding consecutive small walking increments
       if (!this.anchorLocation) {
@@ -395,19 +403,24 @@ export class WalkingVerificationService {
         latitude,
         longitude
       );
+      const anchorDistMeters = anchorDistKm * 1000;
 
-      // If moved > 2.0 meters from anchor or travelling at speed
-      if (anchorDistKm >= 0.0020 && (!accuracy || accuracy < 50)) {
+      // Filter stationary GPS drift: only add distance if user genuinely displaced (> 2.5m and accuracy < 40m)
+      const minDriftThresholdM = Math.max(2.5, Math.min(8.0, (accuracy || 10) * 0.4));
+      if (anchorDistMeters >= minDriftThresholdM && (!accuracy || accuracy < 40)) {
         this.totalDistanceKm += anchorDistKm;
         this.anchorLocation = { latitude, longitude, timestamp };
       }
 
-      // If hardware GPS speed is not provided by device, compute displacement speed
+      // If hardware GPS speed is not provided by device, compute displacement speed with strict drift rejection
       if (!hasHardwareSpeed) {
-        if (timeDeltaSec >= 0.5 && timeDeltaSec <= 15) {
-          const calcSpeed = (dKm / (timeDeltaSec / 3600));
-          if (calcSpeed < 180) { // Discard wild GPS teleport spikes (> 180 km/h)
-            instantaneousSpeedKmh = calcSpeed;
+        if (timeDeltaSec >= 1.0 && timeDeltaSec <= 10.0) {
+          if (distMeters >= minDriftThresholdM) {
+            const calcSpeed = (dKm / (timeDeltaSec / 3600));
+            // Discard wild GPS teleport spikes (> 15 km/h for walking)
+            if (calcSpeed >= 0.8 && calcSpeed <= 15.0) {
+              instantaneousSpeedKmh = calcSpeed;
+            }
           }
         }
       }
@@ -418,17 +431,22 @@ export class WalkingVerificationService {
       this.anchorLocation = { latitude, longitude, timestamp };
     }
 
-    // Pedestrian Cadence Speed Fusion:
-    // Only if not vehicular and taking steps
-    const currentCadence = this.computeCadence(timestamp);
-    if (currentCadence >= 45 && instantaneousSpeedKmh < 1.5 && !this.isVehicularLocked()) {
-      const strideSpeedKmh = currentCadence * 0.045;
-      instantaneousSpeedKmh = Math.max(instantaneousSpeedKmh, strideSpeedKmh);
+    // Clamp pedestrian speed bounds (walking is typically 1.5 - 7.5 km/h)
+    if (this.currentMode === 'WALK' || this.currentMode === 'WALKING' || this.currentMode === 'STATIONARY') {
+      if (instantaneousSpeedKmh > 12.0 && !this.isVehicularLocked()) {
+        instantaneousSpeedKmh = 12.0; // Reject impossible walking spikes
+      }
+    }
+
+    // If user has stopped walking (no steps in > 3s) and GPS reports minimal speed, return toward 0
+    const timeSinceLastStep = this.lastStepTimestamp > 0 ? (timestamp - this.lastStepTimestamp) : 999999;
+    if (timeSinceLastStep > 3000 && instantaneousSpeedKmh < 1.2) {
+      instantaneousSpeedKmh = 0;
     }
 
     // Smooth speed using a 3-sample moving average
     this.recentSpeeds.push(instantaneousSpeedKmh);
-    if (this.recentSpeeds.length > 4) this.recentSpeeds.shift();
+    if (this.recentSpeeds.length > 3) this.recentSpeeds.shift();
     const smoothedSpeed = this.recentSpeeds.reduce((a, b) => a + b, 0) / this.recentSpeeds.length;
 
     this.currentGpsSpeed = Number(Math.max(0, smoothedSpeed).toFixed(1));
@@ -453,7 +471,8 @@ export class WalkingVerificationService {
   }
 
   /**
-   * Multi-Signal Walking Confidence Scoring (0% - 100%)
+   * Multi-Signal Real Walking Confidence Scoring (0% - 100%)
+   * Starts strictly at 0%. Bounded, state-aware, and gradually responsive.
    */
   calculateWalkingConfidence({
     deviceInfo,
@@ -466,12 +485,15 @@ export class WalkingVerificationService {
     hasGpsFix = false,
     elapsedSeconds = 0,
   }) {
-    if (!deviceInfo.isMobile) {
+    const devInfo = deviceInfo || this.detectDeviceCapabilities();
+    const isMobile = devInfo && typeof devInfo.isMobile === 'boolean' ? devInfo.isMobile : true;
+
+    if (!isMobile && !accelMagnitude && !hasStepCounter) {
       return {
         confidenceScore: 0,
         isVerified: false,
-        statusLabel: 'Desktop - No Walking Verification',
-        reason: 'Walking verification requires mobile sensors.',
+        statusLabel: 'Not enough walking evidence',
+        reason: 'Walking verification requires mobile motion sensors.',
         signals: {
           gps: hasGpsFix ? 'GPS Active (Desktop/Laptop)' : 'Not available',
           accelerometer: 'Not available on desktop/laptop',
@@ -481,8 +503,9 @@ export class WalkingVerificationService {
       };
     }
 
-    // If speed is vehicular (> 7.5 km/h), walking confidence is strictly 0%
+    // If speed is vehicular (> 7.8 km/h), walking confidence is strictly 0%
     if (gpsSpeedKmh >= 7.8 || ['SCOOTER', 'CAR', 'BUS', 'METRO'].includes(this.currentMode)) {
+      this.currentWalkingConfidence = 0;
       return {
         confidenceScore: 0,
         isVerified: false,
@@ -497,65 +520,212 @@ export class WalkingVerificationService {
       };
     }
 
-    let score = 0;
+    const now = Date.now();
+    const timeSinceLastStep = this.lastStepTimestamp > 0 ? (now - this.lastStepTimestamp) : 999999;
+    const isStepRecent = timeSinceLastStep <= 2500;
+
+    let targetScore = 0;
     const evidenceList = [];
+
+    // 1. Genuine Step Counter Evidence (Up to 35%)
+    if (stepCount >= 6) {
+      targetScore += 35;
+      evidenceList.push(`Step Counter: ${stepCount.toLocaleString()} physical steps registered`);
+    } else if (stepCount >= 3) {
+      targetScore += 25;
+      evidenceList.push(`Step Counter: ${stepCount.toLocaleString()} steps registered`);
+    } else if (stepCount >= 1) {
+      targetScore += 15;
+      evidenceList.push(`Step Counter: ${stepCount} step registered`);
+    }
+
+    // 2. Accelerometer Walking Rhythm Evidence (Up to 25%)
+    if (accelMagnitude >= 0.5 && accelMagnitude <= 4.0) {
+      if (isStepRecent) {
+        targetScore += 25;
+        evidenceList.push('Accelerometer: Verified pedestrian footstrike rhythm ✓');
+      } else {
+        targetScore += 12;
+      }
+    } else if (accelMagnitude >= 0.3) {
+      targetScore += 8;
+    }
+
+    // 3. GPS Kinematic Movement Evidence (Up to 25%)
+    if (hasGpsFix) {
+      if (gpsSpeedKmh >= 1.2 && gpsSpeedKmh <= 6.8) {
+        targetScore += 25;
+        evidenceList.push(`GPS Speed: ${gpsSpeedKmh.toFixed(1)} km/h matches pedestrian walking band`);
+      } else if (gpsSpeedKmh > 0.4 && gpsSpeedKmh < 1.2) {
+        targetScore += 12;
+      } else if (gpsSpeedKmh > 7.8) {
+        targetScore -= 30; // Vehicular lockout
+      }
+    }
+
+    // 4. Movement Consistency & Continuity Over Time (Up to 15%)
+    if (isStepRecent && stepCount >= 2) {
+      if (!this.continuousWalkingStartTime) {
+        this.continuousWalkingStartTime = now;
+      }
+      const walkingDurationSec = (now - this.continuousWalkingStartTime) / 1000;
+      if (walkingDurationSec >= 20) {
+        targetScore += 15;
+        evidenceList.push('Consistency: Sustained continuous pedestrian movement');
+      } else if (walkingDurationSec >= 10) {
+        targetScore += 10;
+      } else if (walkingDurationSec >= 4) {
+        targetScore += 5;
+      }
+    } else {
+      this.continuousWalkingStartTime = 0;
+    }
+
+    // 5. Step-to-Distance Cross-Validation — Fraud Detection (penalises up to -40%)
+    //    Only fires once we have enough real data: >20 steps and >5 m GPS displacement.
+    //    AVG_STRIDE_M = 0.75 m; tolerance widens when GPS accuracy is poor (>35 m).
+    {
+      const AVG_STRIDE_M = 0.00075; // km per step (0.75 m)
+      const gpsAccuracyM = this.lastGpsAccuracy || 15; // fallback: assume decent GPS
+      // Widen tolerance bounds when GPS is noisy
+      const accuracyMultiplier = gpsAccuracyM > 35 ? 1.8 : gpsAccuracyM > 20 ? 1.3 : 1.0;
+      const lowerBound = 0.10 * accuracyMultiplier;  // ratio < this → stationary tapping
+      const upperBound = 3.50 / accuracyMultiplier;  // ratio > this → vehicle tapping
+
+      const haveEnoughData = stepCount > 20 && distanceKm > 0.005;
+
+      if (haveEnoughData) {
+        const expectedDistanceKm = stepCount * AVG_STRIDE_M;
+        const actualRatio = distanceKm / expectedDistanceKm; // 1.0 = perfectly plausible
+
+        // Maintain a rolling 5-sample history to avoid punishing on a single noisy GPS fix
+        this.stepDistanceRatioHistory.push(actualRatio);
+        if (this.stepDistanceRatioHistory.length > 5) {
+          this.stepDistanceRatioHistory.shift();
+        }
+        const medianRatio = this.stepDistanceRatioHistory.slice().sort((a, b) => a - b)[
+          Math.floor(this.stepDistanceRatioHistory.length / 2)
+        ];
+
+        if (medianRatio > upperBound) {
+          // VEHICLE TAPPING: GPS moved far more than steps can account for.
+          // Classic case: user sitting in a car tapping phone while vehicle travels.
+          this.lastStepDistanceFlag = 'VEHICLE_TAPPING';
+          // Penalise proportionally to how far off the ratio is (capped at -40 pts)
+          const excess = Math.min(medianRatio / upperBound, 5.0); // 1.0–5.0x
+          const penalty = Math.round(Math.min(40, (excess - 1) * 15));
+          targetScore = Math.max(0, targetScore - penalty);
+          evidenceList.push(`⚠ Step/Distance mismatch: GPS ${distanceKm.toFixed(2)} km vs ${stepCount} steps (vehicle tapping signal)`);
+        } else if (medianRatio < lowerBound) {
+          // STATIONARY TAPPING: Many steps counted but almost zero GPS movement.
+          // Classic case: user shaking/tapping phone while standing still.
+          this.lastStepDistanceFlag = 'STATIONARY_TAPPING';
+          const deficit = Math.min(lowerBound / Math.max(medianRatio, 0.001), 5.0);
+          const penalty = Math.round(Math.min(35, (deficit - 1) * 12));
+          targetScore = Math.max(0, targetScore - penalty);
+          evidenceList.push(`⚠ Step/Distance mismatch: ${stepCount} steps but only ${(distanceKm * 1000).toFixed(0)} m GPS (stationary tapping signal)`);
+        } else {
+          // PLAUSIBLE: ratio within expected pedestrian range
+          this.lastStepDistanceFlag = 'PLAUSIBLE';
+          // Small corroboration bonus for passing the cross-check
+          targetScore = Math.min(100, targetScore + 5);
+          evidenceList.push(`Step/Distance check: ${stepCount} steps / ${distanceKm.toFixed(2)} km — plausible ✓`);
+        }
+      }
+    }
+
+    // 6. Stationary Penalty: standing still or stopped walking
+    if (stepCount === 0 && gpsSpeedKmh < 0.5 && accelMagnitude < 0.3) {
+      targetScore = 0; // Pure stationary
+    } else if (timeSinceLastStep > 3500 && gpsSpeedKmh < 0.8) {
+      // Stopped walking: target score drops toward low / 0
+      targetScore = Math.min(targetScore * 0.25, 15);
+    }
+
+    targetScore = Math.max(0, Math.min(100, targetScore));
+
+    // Temporal Smoothing (Slew Rate Limiter): Prevent sudden 0% -> 95% jumps
+    const dt = Math.min(1.5, Math.max(0.05, (now - this.lastConfidenceUpdateTime) / 1000));
+    this.lastConfidenceUpdateTime = now;
+
+    if (targetScore > this.currentWalkingConfidence) {
+      // Gradual rise: maximum +12% per second
+      this.currentWalkingConfidence = Math.min(targetScore, this.currentWalkingConfidence + dt * 12);
+    } else {
+      // Smooth decay when stopping: -20% per second
+      this.currentWalkingConfidence = Math.max(targetScore, this.currentWalkingConfidence - dt * 20);
+    }
+
+    const confidenceScore = Math.max(0, Math.min(100, Math.round(this.currentWalkingConfidence)));
+
+    // Meaningful State Labels strictly mapped to confidence percentage
+    let statusLabel = 'Not enough walking evidence';
+    if (confidenceScore <= 20) {
+      statusLabel = 'Not enough walking evidence';
+    } else if (confidenceScore <= 40) {
+      statusLabel = 'Low walking confidence';
+    } else if (confidenceScore <= 60) {
+      statusLabel = 'Possible walking';
+    } else if (confidenceScore <= 80) {
+      statusLabel = 'Walking likely';
+    } else {
+      statusLabel = 'Walking verified';
+    }
+
+    const isVerified = confidenceScore >= 80 && stepCount >= 4;
+
     const signals = {
-      gps: hasGpsFix ? `${gpsSpeedKmh.toFixed(1)} km/h` : 'Location Tracking',
-      accelerometer: accelMagnitude > 0.65 ? 'Walking rhythm verified ✓' : (accelMagnitude > 0.2 ? 'Active motion' : 'Stationary'),
-      gyroscope: gyroMagnitude > 1.0 ? 'Motion detected ✓' : (gyroMagnitude > 0.2 ? 'Active tilt' : 'Stationary'),
+      gps: hasGpsFix ? `${gpsSpeedKmh.toFixed(1)} km/h` : 'Waiting for GPS fix',
+      accelerometer: accelMagnitude >= 0.5 ? 'Walking rhythm active ✓' : (accelMagnitude >= 0.25 ? 'Movement detected' : 'Stationary'),
+      gyroscope: gyroMagnitude >= 0.8 ? 'Stride rotation detected ✓' : 'Stationary tilt',
       stepCounter: `${stepCount.toLocaleString()} steps`,
     };
 
-    // 1. Accelerometer motion evidence
-    if (accelMagnitude >= 0.5 && accelMagnitude <= 6.0) {
-      score += 35;
-      evidenceList.push('Accelerometer: Verified pedestrian footstrike impact rhythm ✓');
-    } else if (accelMagnitude > 0.25) {
-      score += 20;
-    }
-
-    // 2. Gyroscope rotational evidence
-    if (gyroMagnitude >= 0.8 && gyroMagnitude <= 300.0) {
-      score += 20;
-      evidenceList.push('Gyroscope: Natural torso/leg stride rotation detected ✓');
-    } else if (gyroMagnitude > 0.2) {
-      score += 10;
-    }
-
-    // 3. Step counter & Cadence evidence
-    if (stepCount > 0) {
-      score += 30;
-      evidenceList.push(`Step Counter: ${stepCount.toLocaleString()} physical steps registered`);
-    }
-    if (elapsedSeconds > 3) {
-      const avgCadence = stepCount / (elapsedSeconds / 60);
-      if (avgCadence >= 40 && avgCadence <= 190) {
-        score += 15;
-        evidenceList.push(`Cadence: ${Math.round(avgCadence)} steps/min aligns with active walking`);
-      }
-    }
-
-    // 4. GPS Kinematic bounds
-    if (hasGpsFix) {
-      if (gpsSpeedKmh >= 0.8 && gpsSpeedKmh <= 7.2) {
-        score += 10;
-        evidenceList.push(`GPS speed (${gpsSpeedKmh.toFixed(1)} km/h) matches pedestrian speed band`);
-      } else if (gpsSpeedKmh > 7.8) {
-        score -= 35; // Vehicle or bicycle
-      }
-    }
-
-    const finalScore = Math.min(99, Math.max(0, score));
-    const isVerified = finalScore >= 50 && (stepCount > 0 || accelMagnitude >= 0.5);
-
     return {
-      confidenceScore: finalScore,
+      confidenceScore,
       isVerified,
-      statusLabel: isVerified ? 'Walking Verified ✓' : (finalScore >= 35 ? 'Moderate Motion' : 'Awaiting Walking Motion'),
+      statusLabel,
       evidence: evidenceList,
       signals,
     };
   }
+
+  /**
+   * Return granular metrics for Development Debug Panel
+   */
+  getDebugMetrics(sessionSteps = this.stepCount, baselineSteps = 0, rawSteps = this.stepCount) {
+    let statusLabel = 'Not enough walking evidence';
+    const conf = Math.round(this.currentWalkingConfidence);
+    if (conf <= 20) statusLabel = 'Not enough walking evidence';
+    else if (conf <= 40) statusLabel = 'Low walking confidence';
+    else if (conf <= 60) statusLabel = 'Possible walking';
+    else if (conf <= 80) statusLabel = 'Walking likely';
+    else statusLabel = 'Walking verified';
+
+    const fraudFlags = [];
+    if (this.currentGpsSpeed >= 7.5) fraudFlags.push('VEHICLE_SPEED_WARNING');
+    if (this.isVehicularLocked()) fraudFlags.push('VEHICULAR_LOCKOUT');
+    if (this.lastGpsAccuracy && this.lastGpsAccuracy > 35) fraudFlags.push('POOR_GPS_ACCURACY');
+
+    return {
+      activityMode: 'WALKING',
+      gpsAccuracy: this.lastGpsAccuracy !== null ? `±${this.lastGpsAccuracy}m` : 'N/A',
+      gpsSpeed: `${this.currentGpsSpeed.toFixed(1)} km/h`,
+      calculatedSpeed: `${this.currentGpsSpeed.toFixed(1)} km/h`,
+      rawStepCount: rawSteps,
+      baselineStepCount: baselineSteps,
+      sessionSteps: sessionSteps,
+      gpsDistance: `${this.totalDistanceKm.toFixed(3)} km`,
+      accelerometerAvailable: this.lastCandidateTimestamp > 0 || this.recentPeaks.length > 0 ? 'Yes' : 'Waiting...',
+      gyroscopeAvailable: 'Yes',
+      walkingConfidence: `${conf}%`,
+      verificationState: statusLabel,
+      fraudFlags: fraudFlags.length > 0 ? fraudFlags.join(', ') : 'None',
+      lastGpsUpdate: this.lastGpsTimestamp ? new Date(this.lastGpsTimestamp).toLocaleTimeString() : 'Waiting...',
+      lastStepUpdate: this.lastStepTimestamp ? new Date(this.lastStepTimestamp).toLocaleTimeString() : 'Waiting...',
+    };
+  }
 }
 
+export const WalkingVerificationEngine = WalkingVerificationService;
 export const walkingVerificationService = new WalkingVerificationService();

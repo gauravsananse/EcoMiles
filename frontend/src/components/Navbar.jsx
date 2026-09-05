@@ -39,8 +39,8 @@ export default function Navbar({
           </div>
         </div>
 
-        {/* Navigation Tabs */}
-        <nav style={{
+        {/* Navigation Tabs (Desktop / Tablet) */}
+        <nav className="desktop-nav-tabs" style={{
           display: 'flex',
           alignItems: 'center',
           gap: '0.25rem',
@@ -169,7 +169,7 @@ export default function Navbar({
           {user ? (
             <>
               {/* Dual-Economy Points Pill */}
-              <div style={{
+              <div className="points-pill" style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.6rem',

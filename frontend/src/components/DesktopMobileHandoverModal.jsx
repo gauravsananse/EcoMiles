@@ -84,11 +84,12 @@ export default function DesktopMobileHandoverModal({
 
   // Build target URL with journeyId and pairing params
   const queryParams = new URLSearchParams();
+  queryParams.set('tab', 'tracker');
+  queryParams.set('pair', 'true');
   if (journeyId) {
     queryParams.set('journeyId', journeyId);
-    queryParams.set('pair', 'true');
   }
-  const fullMobileUrl = queryParams.toString() ? `${baseUrl}/?${queryParams.toString()}` : `${baseUrl}/`;
+  const fullMobileUrl = `${baseUrl}/?${queryParams.toString()}`;
 
   const handleCopyLink = () => {
     if (typeof navigator !== 'undefined' && navigator.clipboard) {

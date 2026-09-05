@@ -1,4 +1,4 @@
-const API_BASE = '/api';
+const API_BASE = (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/+$/, '') : '') + '/api';
 
 /**
  * Helper to fetch stored JWT auth token
@@ -433,5 +433,59 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
+
+  // Real-World Metro Verification System
+  verifyMetroTicket: async (payload) => {
+    return request('/metro/verify-ticket', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  verifyMetroOrigin: async (payload) => {
+    return request('/metro/verify-origin', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  startMetroJourney: async (payload) => {
+    return request('/metro/start-journey', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  recordMetroLocation: async (payload) => {
+    return request('/metro/location', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  endMetroJourney: async (payload) => {
+    return request('/metro/end-journey', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  getMetroStations: async (city = 'Pune', query = '') => {
+    const q = new URLSearchParams({ city, ...(query ? { query } : {}) });
+    return request(`/metro/stations?${q.toString()}`, { method: 'GET' });
+  },
+
+  getMetroJourneyAudit: async (journeyId) => {
+    return request(`/metro/journey/${journeyId}`, { method: 'GET' });
+  },
+
+  // Bus Ticket OCR & Anti-Replay Validation
+  validateBusTicketOCR: async (payload) => {
+    return request('/metro/bus/verify-ticket', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
 };
+
 

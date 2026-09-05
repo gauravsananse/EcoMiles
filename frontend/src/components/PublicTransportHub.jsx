@@ -26,6 +26,11 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import TicketVerificationModal from './TicketVerificationModal';
+import PublicTransportModeSelector from './PublicTransportModeSelector';
+import MetroVerificationModal from './MetroVerificationModal';
+import MetroAuditDebugModal from './MetroAuditDebugModal';
+import BusTicketOCRModal from './BusTicketOCRModal';
+import PlaceAutocompleteInput from './PlaceAutocompleteInput';
 
 export default function PublicTransportHub({
   journeyId,
@@ -33,9 +38,23 @@ export default function PublicTransportHub({
   onSegmentStarted,
   onBack,
   isTestMode = false,
+  initialMode = null,
 }) {
-  const [fromText, setFromText] = useState('Katraj');
+  // Transit Mode Selection: null (Chooser) | 'BUS' | 'METRO'
+  const [activeTransitMode, setActiveTransitMode] = useState(initialMode);
+
+  // Metro Modal & Audit State
+  const [showMetroModal, setShowMetroModal] = useState(false);
+  const [showAuditModal, setShowAuditModal] = useState(false);
+  const [auditJourneyId, setAuditJourneyId] = useState(null);
+
+  // Bus Autocomplete & Location State
+  const [fromText, setFromText] = useState('Katraj Bus Terminal');
+  const [fromPlace, setFromPlace] = useState(null);
   const [toText, setToText] = useState('Bitwise Tower');
+  const [toPlace, setToPlace] = useState(null);
+
+  // Bus Stops & Routes
   const [nearbyStops, setNearbyStops] = useState([]);
   const [loadingStops, setLoadingStops] = useState(false);
   const [expandedStopId, setExpandedStopId] = useState(null);
@@ -48,11 +67,14 @@ export default function PublicTransportHub({
   const [isStarting, setIsStarting] = useState(false);
   const [error, setError] = useState('');
 
-  // Ticket Verification & Co-Traveller Workflow
-  const [showTicketModal, setShowTicketModal] = useState(false);
+  // Bus Ticket OCR Verification State
+  const [showBusOcrModal, setShowBusOcrModal] = useState(false);
   const [verifiedTicketInfo, setVerifiedTicketInfo] = useState(null);
 
-  // Join Existing Journey Modal state
+  // Fallback Ticket Verification Modal
+  const [showLegacyTicketModal, setShowLegacyTicketModal] = useState(false);
+
+  // Join Existing Journey Modal state (Co-travellers)
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [joinQrInput, setJoinQrInput] = useState('');
   const [isJoining, setIsJoining] = useState(false);
@@ -185,6 +207,9 @@ export default function PublicTransportHub({
           name: 'Route 104 — Shivajinagar ⇄ Aundh / Baner',
           shortName: 'Bus 104',
           mode: 'BUS',
+          operator: 'PMPML',
+          origin: { name: 'Shivajinagar Station', lat: 18.5300, lng: 73.8400 },
+          destination: { name: 'Baner Road', lat: 18.5590, lng: 73.7868 },
           totalDurationMinutes: 48,
           totalDistanceKm: 10.5,
           transfers: 1,
@@ -204,26 +229,39 @@ export default function PublicTransportHub({
   };
 
   /**
-   * FLOW 1: When user clicks "START PUBLIC SEGMENT"
-   * DO NOT start the journey immediately.
-   * Open the Ticket Verification Modal.
+   * Start Public Segment
    */
   const handleStartSegmentClick = () => {
     if (!selectedRoute) return;
-    // Open Ticket Verification Modal
-    setShowTicketModal(true);
+    if (!verifiedTicketInfo) {
+      // Open Bus Ticket OCR Modal
+      setShowBusOcrModal(true);
+    } else {
+      handleLaunchLivePublicJourney();
+    }
+  };
+
+  const handleBusTicketVerified = (ocrResult) => {
+    setVerifiedTicketInfo({
+      ticket: {
+        _id: ocrResult.ticket?._id || `BTK-${Date.now()}`,
+        ticketNumber: ocrResult.ticket?.ticketNumber,
+        operator: ocrResult.ticket?.operator || 'PMPML',
+        source: ocrResult.ticket?.source || fromText,
+        destination: ocrResult.ticket?.destination || toText,
+        fare: ocrResult.ticket?.fare,
+        busNumber: ocrResult.ticket?.busNumber,
+        isOperatorAuthenticated: ocrResult.isOperatorAuthenticated ?? false,
+        verificationMessage: ocrResult.message,
+      },
+      passengers: 1,
+      totalCapacity: 1,
+      isCoTraveller: false,
+    });
   };
 
   /**
-   * Callback when ticket is verified in modal
-   */
-  const handleTicketVerifiedCallback = (verifiedData) => {
-    setVerifiedTicketInfo(verifiedData);
-  };
-
-  /**
-   * FLOW 6 & 7: User clicks "START PUBLIC JOURNEY" after ticket is verified
-   * Starts GPS tracking immediately in parent component.
+   * User launches live journey with GPS tracking
    */
   const handleLaunchLivePublicJourney = async () => {
     if (!selectedRoute) return;
@@ -243,13 +281,15 @@ export default function PublicTransportHub({
         );
 
         if (verifiedTicketInfo?.ticket?._id) {
-          await api.linkTicketToJourney(journeyId, {
-            ticketId: verifiedTicketInfo.ticket._id,
-            ticketNumber: verifiedTicketInfo.ticket.ticketNumber,
-            operator: verifiedTicketInfo.ticket.operator,
-            passengerSlot: 0,
-            coTravellers: verifiedTicketInfo.coTravellers,
-          });
+          try {
+            await api.linkTicketToJourney(journeyId, {
+              ticketId: verifiedTicketInfo.ticket._id,
+              ticketNumber: verifiedTicketInfo.ticket.ticketNumber,
+              operator: verifiedTicketInfo.ticket.operator,
+              passengerSlot: 0,
+              coTravellers: verifiedTicketInfo.coTravellers || [],
+            });
+          } catch (_) {}
         }
 
         if (onSegmentStarted) {
@@ -272,7 +312,6 @@ export default function PublicTransportHub({
       }
     } catch (err) {
       console.error('Failed to start public transport segment:', err);
-      // Fallback start
       if (onSegmentStarted) {
         onSegmentStarted(0, {
           ...selectedRoute,
@@ -318,27 +357,66 @@ export default function PublicTransportHub({
     }
   };
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 1. PUBLIC TRANSPORT ENTRY (BUS vs METRO CHOOSER)
+  // ─────────────────────────────────────────────────────────────────────────────
+  if (!activeTransitMode || activeTransitMode === 'CHOOSER') {
+    return (
+      <div className="card" style={{ maxWidth: '850px', margin: '0 auto 2rem', padding: '1.75rem', animation: 'fadeIn 0.25s ease' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="btn btn-secondary"
+              style={{ padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.82rem' }}
+            >
+              <ArrowLeft size={15} />
+              <span>Back to Mobility Modes</span>
+            </button>
+          )}
+          {isTestMode && (
+            <span style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontSize: '0.68rem', fontWeight: 800, padding: '2px 8px', borderRadius: '9999px' }}>
+              PROTOTYPE ENVIRONMENT
+            </span>
+          )}
+        </div>
+
+        <PublicTransportModeSelector
+          onSelectMode={(mode) => {
+            setActiveTransitMode(mode);
+            if (mode === 'METRO') {
+              setShowMetroModal(true);
+            }
+          }}
+          onClose={onBack}
+        />
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 2. BUS JOURNEY PLANNER & OCR VERIFICATION SCREEN
+  // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div className="card" style={{ maxWidth: '850px', margin: '0 auto 2rem', padding: '1.5rem', animation: 'fadeIn 0.25s ease' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--slate-100)', paddingBottom: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          {onBack && (
-            <button
-              onClick={onBack}
-              className="btn btn-secondary"
-              style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem' }}
-            >
-              <ArrowLeft size={15} />
-              <span>Back</span>
-            </button>
-          )}
+          <button
+            onClick={() => setActiveTransitMode(null)}
+            className="btn btn-secondary"
+            style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem' }}
+            title="Switch between Bus and Metro"
+          >
+            <ArrowLeft size={15} />
+            <span>Transit Options</span>
+          </button>
 
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--slate-900)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Bus size={22} className="text-blue-600" />
-                <span>Public Transport Journey Planner</span>
+                <span>Bus Journey &amp; Ticket Verification</span>
               </h2>
               {isTestMode && (
                 <span style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', fontSize: '0.68rem', fontWeight: 800, padding: '1px 6px', borderRadius: '9999px' }}>
@@ -347,21 +425,35 @@ export default function PublicTransportHub({
               )}
             </div>
             <div style={{ fontSize: '0.78rem', color: 'var(--slate-500)', marginTop: '2px' }}>
-              Ticket OCR verification, Co-Traveller multi-passenger slots, and Real GPS tracking.
+              Smart Autocomplete &bull; Ticket OCR Verification &bull; Anti-Replay Ledger &bull; Real GPS Tracking
             </div>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          {/* JOIN EXISTING JOURNEY BUTTON (Section 5) */}
+          {/* Switch to Metro Quick Toggle */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTransitMode('METRO');
+              setShowMetroModal(true);
+            }}
+            className="btn btn-secondary"
+            style={{ padding: '6px 10px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '4px', color: '#4f46e5', borderColor: '#c7d2fe', background: '#eef2ff' }}
+          >
+            <Train size={14} />
+            <span>Switch to Metro</span>
+          </button>
+
+          {/* Join Existing Journey */}
           <button
             type="button"
             onClick={() => setShowJoinModal(true)}
             className="btn btn-secondary"
             style={{ padding: '6px 10px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '4px', color: '#1d4ed8', borderColor: '#bfdbfe', background: '#eff6ff' }}
           >
-            <QrCode size={14} className="text-blue-600" />
-            <span>Join Existing Journey</span>
+            <QrCode size={14} />
+            <span>Join via QR</span>
           </button>
 
           <button
@@ -375,38 +467,37 @@ export default function PublicTransportHub({
         </div>
       </div>
 
-      {/* Origin & Destination Search Form */}
+      {/* Origin & Destination Search Form with Smart Autocomplete */}
       <div style={{ background: '#f8fafc', border: '1px solid var(--slate-200)', borderRadius: '12px', padding: '1.15rem', marginBottom: '1.5rem' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.75rem', marginBottom: '0.9rem' }}>
-          {/* Origin */}
-          <div style={{ display: 'flex', alignItems: 'center', background: '#ffffff', border: '1px solid var(--slate-300)', borderRadius: '8px', padding: '0.5rem 0.85rem', gap: '0.5rem' }}>
-            <MapPin size={16} className="text-emerald-600" style={{ flexShrink: 0 }} />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: '0.68rem', color: 'var(--slate-400)', fontWeight: 700, textTransform: 'uppercase' }}>From (Origin)</div>
-              <input
-                type="text"
-                value={fromText}
-                onChange={(e) => setFromText(e.target.value)}
-                style={{ width: '100%', border: 'none', outline: 'none', fontSize: '0.88rem', fontWeight: 600, color: 'var(--slate-800)', padding: 0 }}
-                placeholder="Enter starting location (e.g. Katraj)..."
-              />
-            </div>
-          </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.85rem', marginBottom: '0.9rem' }}>
+          {/* Smart Autocomplete Origin */}
+          <PlaceAutocompleteInput
+            label="From (Origin Bus Stop / Terminal)"
+            placeholder="Search bus stop, terminal, or address (e.g. Katraj)..."
+            value={fromText}
+            onChange={(val) => setFromText(val)}
+            transitModeBias="BUS"
+            currentLocation={currentLocation}
+            showCurrentLocationOption={true}
+            onSelectPlace={(place) => {
+              setFromText(place.name || place.formattedAddress);
+              setFromPlace(place);
+            }}
+          />
 
-          {/* Destination */}
-          <div style={{ display: 'flex', alignItems: 'center', background: '#ffffff', border: '1px solid var(--slate-300)', borderRadius: '8px', padding: '0.5rem 0.85rem', gap: '0.5rem' }}>
-            <Navigation size={16} className="text-blue-600" style={{ flexShrink: 0 }} />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: '0.68rem', color: 'var(--slate-400)', fontWeight: 700, textTransform: 'uppercase' }}>To (Destination)</div>
-              <input
-                type="text"
-                value={toText}
-                onChange={(e) => setToText(e.target.value)}
-                style={{ width: '100%', border: 'none', outline: 'none', fontSize: '0.88rem', fontWeight: 600, color: 'var(--slate-800)', padding: 0 }}
-                placeholder="Enter destination (e.g. Bitwise Tower)..."
-              />
-            </div>
-          </div>
+          {/* Smart Autocomplete Destination */}
+          <PlaceAutocompleteInput
+            label="To (Destination)"
+            placeholder="Search destination, office, or bus stand (e.g. Bitwise Tower)..."
+            value={toText}
+            onChange={(val) => setToText(val)}
+            transitModeBias="BUS"
+            currentLocation={currentLocation}
+            onSelectPlace={(place) => {
+              setToText(place.name || place.formattedAddress);
+              setToPlace(place);
+            }}
+          />
         </div>
 
         <button
@@ -416,8 +507,88 @@ export default function PublicTransportHub({
           style={{ width: '100%', justifyContent: 'center', padding: '0.7rem 1.25rem', fontSize: '0.95rem', gap: '0.5rem' }}
         >
           {loadingRoutes ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
-          <span>Search Public Transport Routes</span>
+          <span>Search Bus Transit Routes</span>
         </button>
+      </div>
+
+      {/* Bus Ticket Verification Section Card */}
+      <div
+        style={{
+          border: verifiedTicketInfo ? '1.5px solid #a7f3d0' : '1px solid #bfdbfe',
+          background: verifiedTicketInfo ? '#ecfdf5' : '#eff6ff',
+          borderRadius: '12px',
+          padding: '1rem 1.25rem',
+          marginBottom: '1.5rem',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div
+              style={{
+                width: '38px',
+                height: '38px',
+                borderRadius: '10px',
+                background: verifiedTicketInfo ? '#059669' : '#2563eb',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              {verifiedTicketInfo ? <CheckCircle2 size={20} /> : <TicketIcon size={20} />}
+            </div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: '0.92rem', color: verifiedTicketInfo ? '#065f46' : '#1e40af' }}>
+                {verifiedTicketInfo ? 'Bus Ticket Verified & Attached' : 'Bus Ticket Verification Required'}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: verifiedTicketInfo ? '#047857' : '#3b82f6' }}>
+                {verifiedTicketInfo
+                  ? `Ticket #${verifiedTicketInfo.ticket.ticketNumber} • Bus ${verifiedTicketInfo.ticket.busNumber || '103'} • ₹${verifiedTicketInfo.ticket.fare || '25'}`
+                  : 'Scan or upload your bus ticket for OCR validation and anti-replay ledger check'}
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowBusOcrModal(true)}
+            className="btn"
+            style={{
+              padding: '6px 14px',
+              fontSize: '0.82rem',
+              fontWeight: 700,
+              background: verifiedTicketInfo ? '#ffffff' : '#2563eb',
+              color: verifiedTicketInfo ? '#065f46' : '#ffffff',
+              border: verifiedTicketInfo ? '1px solid #a7f3d0' : 'none',
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            {verifiedTicketInfo ? <RefreshCw size={14} /> : <ShieldCheck size={14} />}
+            <span>{verifiedTicketInfo ? 'Change / Re-verify Ticket' : 'Verify Bus Ticket'}</span>
+          </button>
+        </div>
+
+        {/* Transparent Disclaimer Badge */}
+        {verifiedTicketInfo && (
+          <div
+            style={{
+              marginTop: '0.75rem',
+              padding: '6px 10px',
+              background: '#fef3c7',
+              border: '1px solid #fde68a',
+              borderRadius: '6px',
+              fontSize: '0.72rem',
+              color: '#92400e',
+              lineHeight: 1.35,
+            }}
+          >
+            <strong>Note:</strong> Ticket OCR validated &bull; Cryptographic anti-replay hash recorded in database &bull; Official operator verification unavailable in demo mode.
+          </div>
+        )}
       </div>
 
       {/* Available Transit Itineraries */}
@@ -454,37 +625,23 @@ export default function PublicTransportHub({
                       </span>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#ecfdf5', color: '#065f46', border: '1px solid #a7f3d0', padding: '2px 8px', borderRadius: '9999px', fontSize: '0.78rem', fontWeight: 800 }}>
-                        <Leaf size={12} fill="#059669" />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#059669', background: '#ecfdf5', padding: '2px 8px', borderRadius: '9999px' }}>
                         +{itin.estimatedGreenCredits || 18} GP
                       </span>
-                      <span style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--slate-800)' }}>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--slate-700)' }}>
                         {itin.totalDurationMinutes} min
                       </span>
                     </div>
                   </div>
 
-                  {/* Multimodal Steps Timeline */}
-                  <div style={{ background: isSelected ? '#ffffff' : '#f8fafc', borderRadius: '8px', padding: '0.75rem', fontSize: '0.8rem', color: 'var(--slate-700)', display: 'flex', flexDirection: 'column', gap: '0.4rem', border: '1px solid rgba(0,0,0,0.05)' }}>
-                    {(itin.steps || []).map((st, idx) => (
-                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        {st.type === 'WALK' ? (
-                          <Footprints size={14} className="text-emerald-600" style={{ flexShrink: 0 }} />
-                        ) : (
-                          <Bus size={14} className="text-blue-600" style={{ flexShrink: 0 }} />
-                        )}
-                        <span style={{ flex: 1 }}>{st.instruction}</span>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--slate-400)', fontWeight: 600 }}>{st.durationMinutes} min</span>
-                      </div>
-                    ))}
+                  <div style={{ fontSize: '0.78rem', color: 'var(--slate-500)', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <span>📍 {itin.totalDistanceKm} km distance</span>
+                    <span>&bull;</span>
+                    <span>🔄 {itin.transfers === 0 ? 'Direct Route (0 transfers)' : `${itin.transfers} Transfer`}</span>
+                    <span>&bull;</span>
+                    <span>🚌 {itin.operator || 'PMPML'}</span>
                   </div>
-
-                  {isSelected && (
-                    <div style={{ marginTop: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                      <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#2563eb' }}>✓ Selected for this segment</span>
-                    </div>
-                  )}
                 </div>
               );
             })}
@@ -492,137 +649,72 @@ export default function PublicTransportHub({
         </div>
       )}
 
-      {/* SECTION 6: RETURN TO PUBLIC TRANSPORT SCREEN WITH VERIFIED TICKET */}
-      {verifiedTicketInfo ? (
+      {/* Selected Route Action Card */}
+      {selectedRoute && (
         <div
           style={{
-            background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+            background: 'linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%)',
             color: '#ffffff',
             borderRadius: '14px',
-            padding: '1.4rem',
-            marginBottom: '1.75rem',
-            boxShadow: '0 8px 24px rgba(15, 23, 42, 0.3)',
+            padding: '1.25rem',
+            marginBottom: '1.5rem',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Bus size={22} className="text-blue-400" />
-              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, letterSpacing: '0.02em' }}>
-                🚌 PUBLIC TRANSPORT JOURNEY
-              </h3>
-            </div>
-            <span style={{ background: '#059669', color: '#ffffff', fontSize: '0.75rem', fontWeight: 800, padding: '3px 10px', borderRadius: '9999px' }}>
-              Ready to Launch
-            </span>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', background: 'rgba(255, 255, 255, 0.07)', borderRadius: '10px', padding: '1rem', marginBottom: '1.25rem', border: '1px solid rgba(255,255,255,0.1)' }}>
             <div>
-              <div style={{ fontSize: '0.68rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Route</div>
-              <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#f8fafc', marginTop: '2px' }}>
-                {fromText} ➔ {toText}
+              <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#93c5fd', fontWeight: 700 }}>
+                Ready to Start Transit Segment
+              </div>
+              <div style={{ fontSize: '1.15rem', fontWeight: 800 }}>
+                {selectedRoute.shortName || selectedRoute.routeId}: {selectedRoute.name}
               </div>
             </div>
 
-            <div>
-              <div style={{ fontSize: '0.68rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Ticket</div>
-              <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#34d399', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <CheckCircle2 size={15} /> Verified ({verifiedTicketInfo.ticket?.ticketNumber || 'PMPML'})
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '1.3rem', fontWeight: 800 }}>
+                +{selectedRoute.estimatedGreenCredits || 18} GP
               </div>
-            </div>
-
-            <div>
-              <div style={{ fontSize: '0.68rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Passengers</div>
-              <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#60a5fa', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <Users size={15} /> {verifiedTicketInfo.passengers || 1}/{verifiedTicketInfo.totalCapacity || 1} Verified
-              </div>
-            </div>
-
-            <div>
-              <div style={{ fontSize: '0.68rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>GPS Tracking</div>
-              <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#34d399', marginTop: '2px' }}>
-                🟢 Ready
-              </div>
-            </div>
-
-            <div>
-              <div style={{ fontSize: '0.68rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 700 }}>Journey Verification</div>
-              <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#34d399', marginTop: '2px' }}>
-                🟢 Ready
+              <div style={{ fontSize: '0.72rem', color: '#93c5fd' }}>
+                Estimated Reward
               </div>
             </div>
           </div>
 
-          {/* CRITICAL GPS START BUTTON (FLOW 7) */}
           <button
-            onClick={handleLaunchLivePublicJourney}
+            onClick={handleStartSegmentClick}
             disabled={isStarting}
             className="btn"
             style={{
               width: '100%',
-              background: '#059669',
-              color: '#ffffff',
+              background: '#ffffff',
+              color: '#1e40af',
               fontWeight: 800,
-              padding: '0.9rem 1.25rem',
-              fontSize: '1.05rem',
+              padding: '0.85rem 1.25rem',
+              fontSize: '1rem',
               justifyContent: 'center',
-              gap: '0.6rem',
+              gap: '0.5rem',
               border: 'none',
               borderRadius: '10px',
-              boxShadow: '0 4px 14px rgba(5, 150, 105, 0.4)',
+              cursor: 'pointer',
             }}
           >
             {isStarting ? (
-              <>
-                <Loader2 size={20} className="animate-spin" />
-                <span>Requesting GPS &amp; Starting Journey...</span>
-              </>
+              <Loader2 size={18} className="animate-spin text-blue-600" />
+            ) : verifiedTicketInfo ? (
+              <CheckCircle2 size={18} className="text-emerald-600" />
             ) : (
-              <>
-                <Navigation size={20} fill="#ffffff" />
-                <span>START PUBLIC JOURNEY</span>
-              </>
+              <TicketIcon size={18} />
             )}
+            <span>
+              {verifiedTicketInfo
+                ? 'START PUBLIC JOURNEY (Ticket Attached)'
+                : 'START PUBLIC SEGMENT (Verify Ticket First)'}
+            </span>
           </button>
         </div>
-      ) : (
-        /* STEP 1: INITIAL ACTION CARD (OPENS TICKET VERIFICATION MODAL) */
-        selectedRoute && (
-          <div style={{ background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)', color: '#ffffff', borderRadius: '12px', padding: '1.25rem', marginBottom: '1.75rem', boxShadow: '0 4px 14px rgba(30, 58, 138, 0.2)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.85rem' }}>
-              <div>
-                <div style={{ fontSize: '0.72rem', color: '#bfdbfe', textTransform: 'uppercase', fontWeight: 800, letterSpacing: '0.05em' }}>
-                  STEP 1 &bull; TICKET VERIFICATION REQUIRED
-                </div>
-                <div style={{ fontSize: '1.2rem', fontWeight: 800, marginTop: '2px' }}>
-                  {selectedRoute.name || selectedRoute.shortName}
-                </div>
-              </div>
-
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '1.3rem', fontWeight: 800 }}>
-                  +{selectedRoute.estimatedGreenCredits || 18} GP
-                </div>
-                <div style={{ fontSize: '0.72rem', color: '#93c5fd' }}>
-                  Estimated Reward
-                </div>
-              </div>
-            </div>
-
-            {/* FLOW 1: Button opens Ticket Modal (Does NOT start immediately) */}
-            <button
-              onClick={handleStartSegmentClick}
-              className="btn"
-              style={{ width: '100%', background: '#ffffff', color: '#1e40af', fontWeight: 800, padding: '0.8rem 1.25rem', fontSize: '1rem', justifyContent: 'center', gap: '0.5rem', border: 'none', borderRadius: '8px' }}
-            >
-              <TicketIcon size={18} />
-              <span>START PUBLIC SEGMENT (Verify Ticket)</span>
-            </button>
-          </div>
-        )
       )}
 
-      {/* Nearby Bus / Metro Stops Section */}
+      {/* Nearby Transit Stops */}
       <div>
         <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--slate-800)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
           <MapPin size={16} className="text-blue-600" />
@@ -632,7 +724,7 @@ export default function PublicTransportHub({
         {loadingStops ? (
           <div style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--slate-500)' }}>
             <Loader2 size={22} className="animate-spin text-blue-600" style={{ margin: '0 auto 0.5rem' }} />
-            <div style={{ fontSize: '0.85rem' }}>Discovering nearby bus stops & metro stations...</div>
+            <div style={{ fontSize: '0.85rem' }}>Discovering nearby bus stops &amp; metro stations...</div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -675,7 +767,7 @@ export default function PublicTransportHub({
                       {isLoadingArr ? (
                         <div style={{ padding: '0.5rem 0', fontSize: '0.78rem', color: 'var(--slate-500)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <Loader2 size={14} className="animate-spin text-blue-600" />
-                          <span>Loading schedule & live ETAs...</span>
+                          <span>Loading schedule &amp; live ETAs...</span>
                         </div>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
@@ -723,13 +815,51 @@ export default function PublicTransportHub({
         </div>
       )}
 
-      {/* Ticket Verification Modal */}
-      <TicketVerificationModal
-        isOpen={showTicketModal}
-        selectedRoute={selectedRoute}
+      {/* Bus Ticket OCR Modal */}
+      <BusTicketOCRModal
+        isOpen={showBusOcrModal}
+        onClose={() => setShowBusOcrModal(false)}
+        onTicketVerified={handleBusTicketVerified}
+        currentRoute={selectedRoute}
+      />
+
+      {/* Metro Verification Modal */}
+      <MetroVerificationModal
+        isOpen={showMetroModal}
+        onClose={() => {
+          setShowMetroModal(false);
+          setActiveTransitMode(null);
+        }}
         journeyId={journeyId}
-        onClose={() => setShowTicketModal(false)}
-        onTicketVerified={handleTicketVerifiedCallback}
+        currentLocation={currentLocation}
+        isTestMode={isTestMode}
+        onOpenAudit={(jId) => {
+          setAuditJourneyId(jId);
+          setShowAuditModal(true);
+        }}
+        onJourneyStarted={(startRes) => {
+          if (onSegmentStarted) {
+            onSegmentStarted(1, {
+              mode: 'METRO',
+              ...startRes,
+            });
+          }
+        }}
+        onJourneyCompleted={(finalRes) => {
+          if (onSegmentStarted) {
+            onSegmentStarted(1, {
+              mode: 'METRO',
+              ...finalRes,
+            });
+          }
+        }}
+      />
+
+      {/* Metro Multi-Factor Audit Modal */}
+      <MetroAuditDebugModal
+        isOpen={showAuditModal}
+        journeyId={auditJourneyId || journeyId}
+        onClose={() => setShowAuditModal(false)}
       />
 
       {/* Join Existing Journey Modal (Friend Scanning QR) */}
@@ -750,51 +880,64 @@ export default function PublicTransportHub({
             padding: '1rem',
           }}
         >
-          <div className="card" style={{ maxWidth: '440px', width: '100%', padding: '1.5rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.75rem' }}>
-              <QrCode size={22} className="text-blue-600" />
-              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--slate-900)', margin: 0 }}>
-                Join Existing Public Journey
-              </h3>
+          <div
+            style={{
+              background: '#ffffff',
+              borderRadius: '16px',
+              padding: '1.5rem',
+              maxWidth: '460px',
+              width: '100%',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <QrCode size={20} className="text-blue-600" />
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800 }}>Join Friend's Journey</h3>
+              </div>
+              <button
+                onClick={() => setShowJoinModal(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--slate-400)' }}
+              >
+                &times;
+              </button>
             </div>
-            <p style={{ fontSize: '0.8rem', color: 'var(--slate-500)', marginBottom: '1rem' }}>
-              Paste the QR invitation token or scanned code from the ticket owner to claim an available passenger slot.
+
+            <p style={{ fontSize: '0.82rem', color: 'var(--slate-600)', marginBottom: '1rem' }}>
+              Paste or scan the Co-Traveller QR Code provided by the primary ticket holder to claim your passenger slot.
             </p>
 
-            <textarea
-              rows={3}
+            <input
+              type="text"
               value={joinQrInput}
               onChange={(e) => setJoinQrInput(e.target.value)}
-              placeholder="Paste Base64 Journey Invitation Token here..."
+              placeholder="Paste co-traveller QR payload or ticket ID..."
               style={{
                 width: '100%',
+                padding: '0.65rem 0.85rem',
                 border: '1px solid var(--slate-300)',
                 borderRadius: '8px',
-                padding: '0.6rem',
-                fontSize: '0.8rem',
-                fontFamily: 'monospace',
+                fontSize: '0.85rem',
                 marginBottom: '1rem',
               }}
             />
 
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
               <button
-                type="button"
                 onClick={() => setShowJoinModal(false)}
                 className="btn btn-secondary"
-                style={{ flex: 1 }}
+                style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
               >
                 Cancel
               </button>
-
               <button
-                type="button"
                 onClick={handleJoinViaQr}
                 disabled={isJoining || !joinQrInput.trim()}
                 className="btn btn-primary"
-                style={{ flex: 1, justifyContent: 'center' }}
+                style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
               >
-                {isJoining ? <Loader2 size={16} className="animate-spin" /> : 'Verify & Join'}
+                {isJoining ? <Loader2 size={14} className="animate-spin" /> : <Users size={14} />}
+                <span>Join Journey</span>
               </button>
             </div>
           </div>

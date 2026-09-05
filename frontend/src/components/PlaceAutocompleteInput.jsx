@@ -155,6 +155,7 @@ export default function PlaceAutocompleteInput({
   showCurrentLocationOption = false,
   autoFocus = false,
   icon: InputIcon = MapPin,
+  transitModeBias = null, // 'METRO' | 'BUS' | null
 }) {
   const [query, setQuery] = useState(value?.name || (typeof value === 'string' ? value : ''));
   const [suggestions, setSuggestions] = useState([]);
@@ -215,13 +216,31 @@ export default function PlaceAutocompleteInput({
         // Backend unreachable — fall through to direct search
       }
 
-      // Always run direct search in parallel to supplement/fill gaps
-      const directResults = await directGeocoderSearch(trimmed);
+      // Priority transit query based on transitModeBias
+      let priorityTransitResults = [];
+      if (transitModeBias === 'METRO') {
+        try {
+          const mRes = await api.getMetroStations('Pune', trimmed);
+          if (mRes && mRes.success && Array.isArray(mRes.stations)) {
+            priorityTransitResults = mRes.stations.map((s) => ({
+              placeId: `metro_${s.stationId}`,
+              name: s.name,
+              formattedAddress: `${s.name}, ${s.localName ? s.localName + ', ' : ''}${s.line}, ${s.city}`,
+              secondaryText: `🚇 ${s.line} • ${s.isUnderground ? 'Underground' : 'Elevated'} • ${s.city}`,
+              latitude: s.latitude,
+              longitude: s.longitude,
+              types: ['metro_station', 'transit_station'],
+              category: 'station',
+              isMetroPriority: true,
+            }));
+          }
+        } catch (_) {}
+      }
 
-      // Merge: backend first, then supplement with unique direct results
-      const merged = [...backendResults];
+      // Merge: priority transit first, backend next, then direct results
+      let merged = [...priorityTransitResults, ...backendResults];
       const seenCoords = new Set(
-        backendResults
+        merged
           .filter((r) => r.latitude && r.longitude)
           .map((r) => `${Number(r.latitude).toFixed(4)}|${Number(r.longitude).toFixed(4)}`)
       );
@@ -235,7 +254,7 @@ export default function PlaceAutocompleteInput({
         }
       }
 
-      setSuggestions(merged.slice(0, 12));
+      setSuggestions(merged.slice(0, 6)); // 3-6 top relevant suggestions for compact mobile UX
       setIsOpen(true);
     } catch (err) {
       if (err.name !== 'AbortError') {

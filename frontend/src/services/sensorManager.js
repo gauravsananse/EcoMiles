@@ -8,10 +8,14 @@
  */
 
 import { walkingVerificationService } from './walkingVerificationService';
+import { cyclingVerificationEngine } from './cyclingVerificationEngine';
+import { stepCountingEngine } from './stepCountingEngine';
 
 class SensorManager {
   constructor() {
     this.isListening = false;
+    this.currentMode = 'STATIONARY';
+    this.activityState = 'IDLE'; // 'IDLE' | 'WALKING_INITIALIZING' | 'WALKING_ACTIVE' | 'WALKING_SUSPICIOUS' | 'CYCLING_INITIALIZING' | 'CYCLING_ACTIVE' | 'PAUSED' | 'COMPLETED'
     this.geoWatchId = null;
     this.deviceInfo = walkingVerificationService.detectDeviceCapabilities();
     this.onUpdateCallback = null;
@@ -21,6 +25,7 @@ class SensorManager {
     this.lastAlpha = null;
     this.lastBeta = null;
     this.lastGamma = null;
+    this.currentCyclingConfidence = 0;
     
     // Latest instantaneous readings
     this.currentReading = {
@@ -42,9 +47,13 @@ class SensorManager {
       rotationalVelocity: 0, // Angular rate (deg/s)
       stepCount: 0,
       cadence: 0,
+      confidence: 0,
       walkingConfidence: 0,
+      cyclingConfidence: null,
       isWalkingVerified: false,
-      walkingStatus: 'Awaiting Journey Start',
+      isCyclingVerified: false,
+      walkingStatus: 'Not enough walking evidence',
+      verificationState: 'Not enough walking evidence',
       bluetoothSignals: [],
       sensorAvailability: {
         gps: false,
@@ -74,6 +83,10 @@ class SensorManager {
       bleSignals: [],
     };
 
+    // Real-time UI Update Throttling (~10Hz / 100ms) to prevent 100% CPU lock on mobile
+    this.lastUiUpdateTime = 0;
+    this.updateScheduled = false;
+
     // Check static browser support
     this.checkInitialSupport();
 
@@ -85,17 +98,63 @@ class SensorManager {
   }
 
   /**
-   * Set callback for real-time sensor updates (called on every hardware tick)
+   * Schedule throttled callback to React UI (~10Hz / 100ms)
+   * Keeps internal hardware sampling at full 60-100Hz while eliminating UI thread lockup.
+   */
+  scheduleThrottledUpdate() {
+    if (this.updateScheduled) return;
+    this.updateScheduled = true;
+
+    const now = Date.now();
+    const elapsed = now - this.lastUiUpdateTime;
+    const delay = Math.max(0, 100 - elapsed);
+
+    setTimeout(() => {
+      this.updateScheduled = false;
+      this.lastUiUpdateTime = Date.now();
+      if (this.onUpdateCallback && this.isListening) {
+        this.onUpdateCallback(this.getCurrentReading());
+      }
+    }, delay);
+  }
+
+  /**
+   * Set callback for real-time sensor updates (called on throttled UI ticks)
    */
   setUpdateCallback(cb) {
     this.onUpdateCallback = cb;
   }
 
   /**
-   * Set active AI transport mode to lock vehicular step counting
+   * Set active transport mode and toggle sensor processing
    */
   setTransportMode(mode) {
-    walkingVerificationService.setTransportMode(mode);
+    this.currentMode = (mode || 'WALK').toUpperCase();
+    const isCycling = this.currentMode === 'CYCLING';
+    const isWalking = this.currentMode === 'WALK' || this.currentMode === 'WALKING';
+
+    if (isCycling) {
+      this.activityState = 'CYCLING_ACTIVE';
+      stepCountingEngine.setEnabled(false);
+      walkingVerificationService.setTransportMode('CYCLING');
+      this.currentReading.walkingConfidence = null; // STRICTLY NULL
+      this.currentReading.stepCount = 0;
+      this.currentReading.cadence = 0;
+      this.currentReading.isWalkingVerified = false;
+    } else if (isWalking) {
+      this.activityState = 'WALKING_ACTIVE';
+      stepCountingEngine.setEnabled(true);
+      walkingVerificationService.setTransportMode('WALK');
+      this.currentReading.cyclingConfidence = null; // STRICTLY NULL
+      this.currentReading.isCyclingVerified = false;
+    } else {
+      stepCountingEngine.setEnabled(false);
+      walkingVerificationService.setTransportMode(this.currentMode);
+      this.currentReading.stepCount = 0;
+      this.currentReading.cadence = 0;
+      this.currentReading.walkingConfidence = null;
+      this.currentReading.cyclingConfidence = null;
+    }
     this.updateWalkingScore();
   }
 
@@ -136,26 +195,37 @@ class SensorManager {
     let motionGranted = false;
     let orientationGranted = false;
 
+    const promises = [];
     if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-      try {
-        const response = await DeviceMotionEvent.requestPermission();
-        motionGranted = response === 'granted';
-      } catch (err) {
-        console.warn('[SensorManager] DeviceMotionEvent permission error:', err.message);
-      }
+      promises.push(
+        DeviceMotionEvent.requestPermission()
+          .then((response) => {
+            motionGranted = response === 'granted';
+          })
+          .catch((err) => {
+            console.warn('[SensorManager] DeviceMotionEvent permission error:', err.message);
+          })
+      );
     } else {
-      motionGranted = 'DeviceMotionEvent' in window;
+      motionGranted = typeof window !== 'undefined' && 'DeviceMotionEvent' in window;
     }
 
     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-      try {
-        const response = await DeviceOrientationEvent.requestPermission();
-        orientationGranted = response === 'granted';
-      } catch (err) {
-        console.warn('[SensorManager] DeviceOrientationEvent permission error:', err.message);
-      }
+      promises.push(
+        DeviceOrientationEvent.requestPermission()
+          .then((response) => {
+            orientationGranted = response === 'granted';
+          })
+          .catch((err) => {
+            console.warn('[SensorManager] DeviceOrientationEvent permission error:', err.message);
+          })
+      );
     } else {
-      orientationGranted = 'DeviceOrientationEvent' in window;
+      orientationGranted = typeof window !== 'undefined' && 'DeviceOrientationEvent' in window;
+    }
+
+    if (promises.length > 0) {
+      await Promise.allSettled(promises);
     }
 
     this.currentReading.sensorAvailability.accelerometer = motionGranted;
@@ -167,18 +237,55 @@ class SensorManager {
   /**
    * Start listening to real device sensors
    */
-  async startListening() {
-    if (this.isListening) return;
+  async startListening(mode = 'WALK') {
+    // Remove existing listeners first to prevent duplicate listeners
+    if (this.isListening) {
+      this.stopListening();
+    }
     this.isListening = true;
+    this.currentMode = (mode || 'WALK').toUpperCase();
     this.clearBuffer();
-    walkingVerificationService.resetJourney();
 
-    this.currentReading.distanceKm = 0;
-    this.currentReading.speed = 0;
-    this.currentReading.stepCount = 0;
-    this.currentReading.cadence = 0;
-    this.currentReading.walkingConfidence = 0;
-    this.currentReading.isWalkingVerified = false;
+    const isCycling = this.currentMode === 'CYCLING';
+    const isWalking = this.currentMode === 'WALK' || this.currentMode === 'WALKING';
+
+    if (isCycling) {
+      this.activityState = 'CYCLING_INITIALIZING';
+      cyclingVerificationEngine.resetJourney();
+      stepCountingEngine.setEnabled(false);
+      walkingVerificationService.setTransportMode('CYCLING');
+
+      this.currentReading.distanceKm = 0;
+      this.currentReading.speed = 0;
+      this.currentReading.stepCount = 0;
+      this.currentReading.cadence = 0;
+      this.currentReading.confidence = 0;
+      this.currentReading.walkingConfidence = null; // STRICTLY NULL
+      this.currentReading.cyclingConfidence = 0;
+      this.currentReading.isWalkingVerified = false;
+      this.currentReading.isCyclingVerified = false;
+      this.currentReading.walkingStatus = 'NOT VERIFIED';
+      this.currentReading.verificationState = 'NOT VERIFIED';
+    } else {
+      this.activityState = isWalking ? 'WALKING_INITIALIZING' : 'IDLE';
+      walkingVerificationService.resetJourney();
+      walkingVerificationService.setTransportMode(this.currentMode);
+      stepCountingEngine.reset();
+      stepCountingEngine.setEnabled(isWalking);
+
+      this.currentReading.distanceKm = 0;
+      this.currentReading.speed = 0;
+      this.currentReading.stepCount = 0;
+      this.currentReading.cadence = 0;
+      this.currentReading.confidence = 0;
+      this.currentReading.walkingConfidence = 0;
+      this.currentReading.cyclingConfidence = null; // STRICTLY NULL
+      this.currentReading.isWalkingVerified = false;
+      this.currentReading.isCyclingVerified = false;
+      this.currentReading.walkingStatus = 'Not enough walking evidence';
+      this.currentReading.verificationState = 'Not enough walking evidence';
+    }
+
     this.currentReading.latitude = null;
     this.currentReading.longitude = null;
     this.currentReading.gpsAccuracy = null;
@@ -197,8 +304,8 @@ class SensorManager {
           this.handleGeoError,
           {
             enableHighAccuracy: true,
-            maximumAge: 0,
-            timeout: 10000,
+            maximumAge: 3000,
+            timeout: 15000,
           }
         );
       } catch (err) {
@@ -233,6 +340,8 @@ class SensorManager {
    */
   stopListening() {
     this.isListening = false;
+    this.activityState = 'IDLE';
+    this.updateScheduled = false;
     if (this.geoWatchId !== null && 'geolocation' in navigator) {
       navigator.geolocation.clearWatch(this.geoWatchId);
       this.geoWatchId = null;
@@ -241,6 +350,7 @@ class SensorManager {
       window.removeEventListener('devicemotion', this.handleMotion);
       window.removeEventListener('deviceorientation', this.handleOrientation);
     }
+    stepCountingEngine.setEnabled(false);
     this.clearBuffer();
   }
 
@@ -260,6 +370,7 @@ class SensorManager {
 
   handleGeoSuccess(position) {
     const { latitude, longitude, accuracy, speed, heading } = position.coords;
+    const now = position.timestamp || Date.now();
 
     // Calculate dynamic movement bearing
     let calculatedHeading = this.currentReading.heading || 0;
@@ -277,30 +388,47 @@ class SensorManager {
       }
     }
 
-    const gpsResult = walkingVerificationService.processGpsPosition({
-      latitude,
-      longitude,
-      accuracy,
-      speed,
-      timestamp: position.timestamp || Date.now(),
-    });
+    let speedKmh = 0;
+    let distanceKm = 0;
+
+    if (this.currentMode === 'CYCLING') {
+      const gpsResult = cyclingVerificationEngine.processGpsPosition({
+        latitude,
+        longitude,
+        accuracy,
+        speed,
+        timestamp: now,
+      });
+      speedKmh = gpsResult.speedKmh;
+      distanceKm = gpsResult.distanceKm;
+    } else {
+      const gpsResult = walkingVerificationService.processGpsPosition({
+        latitude,
+        longitude,
+        accuracy,
+        speed,
+        timestamp: now,
+      });
+      speedKmh = gpsResult.speedKmh;
+      distanceKm = gpsResult.distanceKm;
+    }
 
     this.currentReading.latitude = latitude;
     this.currentReading.longitude = longitude;
     this.currentReading.gpsAccuracy = Math.round(accuracy || 10);
-    this.currentReading.speed = gpsResult.speedKmh;
-    this.currentReading.distanceKm = gpsResult.distanceKm;
+    this.currentReading.speed = speedKmh;
+    this.currentReading.distanceKm = distanceKm;
     this.currentReading.heading = calculatedHeading;
-    this.currentReading.timestamp = position.timestamp || Date.now();
+    this.currentReading.timestamp = now;
     this.currentReading.sensorAvailability.gps = true;
     this.currentReading.gpsStatus = accuracy && accuracy > 35 ? 'POOR' : 'ACTIVE';
 
     // Push to buffer
-    this.windowBuffer.speeds.push(gpsResult.speedKmh);
+    this.windowBuffer.speeds.push(speedKmh);
     this.windowBuffer.headings.push(calculatedHeading);
-    this.windowBuffer.timestamps.push(Date.now());
+    this.windowBuffer.timestamps.push(now);
 
-    // Update walking confidence
+    // Update confidence score
     this.updateWalkingScore();
 
     if (this.onUpdateCallback) {
@@ -355,26 +483,53 @@ class SensorManager {
       this.currentReading.accelerationZ = az;
       this.currentReading.sensorAvailability.accelerometer = true;
 
-      // Real step detection from hardware accelerometer
-      const stepResult = walkingVerificationService.processAccelerometerReading({
-        x: ax,
-        y: ay,
-        z: az,
-        isLinear: Boolean(hasLinear && !hasGrav),
-      }, event.timeStamp ? (Date.now()) : Date.now());
+      // Real step detection ONLY when in WALK mode
+      if (this.currentMode === 'WALK' || this.currentMode === 'WALKING') {
+        const stepResult = walkingVerificationService.processAccelerometerReading({
+          x: ax,
+          y: ay,
+          z: az,
+          isLinear: Boolean(hasLinear && !hasGrav),
+        }, event.timeStamp ? (Date.now()) : Date.now());
 
-      this.currentReading.stepCount = stepResult.stepCount;
-      this.currentReading.cadence = stepResult.cadence;
-      this.currentReading.accelerationMagnitude = stepResult.magnitude;
-      this.currentReading.dynamicMagnitude = stepResult.dynamicMagnitude;
-      this.currentReading.sensorAvailability.stepCounter = true;
+        this.currentReading.stepCount = stepResult.stepCount;
+        this.currentReading.cadence = stepResult.cadence;
+        this.currentReading.accelerationMagnitude = stepResult.magnitude;
+        this.currentReading.dynamicMagnitude = stepResult.dynamicMagnitude;
+        this.currentReading.sensorAvailability.stepCounter = true;
+
+        if (stepResult.stepDetected) {
+          stepCountingEngine.registerStep(Date.now(), 1);
+        }
+
+        if (stepResult.cadence > 0) {
+          this.windowBuffer.cadenceSamples.push(stepResult.cadence);
+        }
+      } else if (this.currentMode === 'CYCLING') {
+        // Cycling mode: feed into CyclingVerificationEngine, strictly zero out and lock steps!
+        cyclingVerificationEngine.processSensorReading({
+          acceleration: { x: ax, y: ay, z: az },
+          rotationRate: rot || null,
+          timestamp: Date.now(),
+        });
+
+        this.currentReading.stepCount = 0;
+        this.currentReading.cadence = 0;
+        const rawMag = Math.sqrt(ax * ax + ay * ay + az * az);
+        this.currentReading.accelerationMagnitude = Number(rawMag.toFixed(2));
+        this.currentReading.dynamicMagnitude = Number(Math.max(0, Math.abs(rawMag - 9.81)).toFixed(2));
+      } else {
+        // Cycling, EV, and Public Transport: disable step counter completely
+        this.currentReading.stepCount = 0;
+        this.currentReading.cadence = 0;
+        const rawMag = Math.sqrt(ax * ax + ay * ay + az * az);
+        this.currentReading.accelerationMagnitude = Number(rawMag.toFixed(2));
+        this.currentReading.dynamicMagnitude = Number(Math.max(0, Math.abs(rawMag - 9.81)).toFixed(2));
+      }
 
       this.windowBuffer.accelerationsX.push(ax);
       this.windowBuffer.accelerationsY.push(ay);
       this.windowBuffer.accelerationsZ.push(az);
-      if (stepResult.cadence > 0) {
-        this.windowBuffer.cadenceSamples.push(stepResult.cadence);
-      }
     }
 
     // Hardware Gyroscope (Rotation Rate in deg/s)
@@ -393,10 +548,7 @@ class SensorManager {
     }
 
     this.updateWalkingScore();
-
-    if (this.onUpdateCallback) {
-      this.onUpdateCallback(this.getCurrentReading());
-    }
+    this.scheduleThrottledUpdate();
   }
 
   handleOrientation(event) {
@@ -433,28 +585,71 @@ class SensorManager {
       this.lastGamma = gamma;
 
       this.updateWalkingScore();
-
-      if (this.onUpdateCallback) {
-        this.onUpdateCallback(this.getCurrentReading());
-      }
+      this.scheduleThrottledUpdate();
     }
   }
 
   updateWalkingScore() {
-    const res = walkingVerificationService.calculateWalkingConfidence({
-      deviceInfo: this.deviceInfo,
-      gpsSpeedKmh: this.currentReading.speed,
-      distanceKm: this.currentReading.distanceKm,
-      stepCount: this.currentReading.stepCount,
-      hasStepCounter: this.currentReading.sensorAvailability.stepCounter,
-      accelMagnitude: this.currentReading.dynamicMagnitude || this.currentReading.accelerationMagnitude,
-      gyroMagnitude: this.currentReading.rotationalVelocity || 0,
-      hasGpsFix: Boolean(this.currentReading.latitude && this.currentReading.longitude),
-    });
+    if (this.currentMode === 'CYCLING') {
+      const res = cyclingVerificationEngine.calculateCyclingConfidence({
+        gpsSpeedKmh: this.currentReading.speed,
+        gpsAccuracy: this.currentReading.gpsAccuracy,
+      });
 
-    this.currentReading.walkingConfidence = res.confidenceScore;
-    this.currentReading.isWalkingVerified = res.isVerified;
-    this.currentReading.walkingStatus = res.statusLabel;
+      this.currentReading.stepCount = 0;
+      this.currentReading.cadence = 0;
+      this.currentReading.walkingConfidence = null; // STRICTLY NULL
+      this.currentReading.cyclingConfidence = res.confidenceScore;
+      this.currentReading.confidence = res.confidenceScore;
+      this.currentReading.isWalkingVerified = false;
+      this.currentReading.isCyclingVerified = res.isVerified;
+      this.currentReading.walkingStatus = res.statusLabel;
+      this.currentReading.verificationState = res.statusLabel;
+      this.activityState = res.isVerified ? 'CYCLING_ACTIVE' : 'CYCLING_INITIALIZING';
+    } else if (this.currentMode === 'WALK' || this.currentMode === 'WALKING' || this.currentMode === 'STATIONARY') {
+      const res = walkingVerificationService.calculateWalkingConfidence({
+        deviceInfo: this.deviceInfo,
+        gpsSpeedKmh: this.currentReading.speed,
+        distanceKm: this.currentReading.distanceKm,
+        stepCount: this.currentReading.stepCount,
+        hasStepCounter: this.currentReading.sensorAvailability.stepCounter,
+        accelMagnitude: this.currentReading.dynamicMagnitude || this.currentReading.accelerationMagnitude,
+        gyroMagnitude: this.currentReading.rotationalVelocity || 0,
+        hasGpsFix: Boolean(this.currentReading.latitude && this.currentReading.longitude),
+      });
+
+      this.currentReading.walkingConfidence = res.confidenceScore;
+      this.currentReading.cyclingConfidence = null; // STRICTLY NULL
+      this.currentReading.confidence = res.confidenceScore;
+      this.currentReading.isWalkingVerified = res.isVerified;
+      this.currentReading.isCyclingVerified = false;
+      this.currentReading.walkingStatus = res.statusLabel;
+      this.currentReading.verificationState = res.statusLabel;
+      this.activityState = res.isVerified ? 'WALKING_ACTIVE' : (res.confidenceScore > 20 ? 'WALKING_ACTIVE' : 'WALKING_INITIALIZING');
+    } else {
+      // Vehicle, EV or Public Transport: step detection disabled
+      this.currentReading.stepCount = 0;
+      this.currentReading.cadence = 0;
+      this.currentReading.walkingConfidence = null;
+      this.currentReading.cyclingConfidence = null;
+      this.currentReading.isWalkingVerified = false;
+      this.currentReading.isCyclingVerified = false;
+    }
+  }
+
+  /**
+   * Granular metrics for Development Debug Panel
+   */
+  getDebugMetrics() {
+    if (this.currentMode === 'CYCLING') {
+      return cyclingVerificationEngine.getDebugMetrics();
+    }
+    const counts = stepCountingEngine.getCounts();
+    return walkingVerificationService.getDebugMetrics(
+      counts.sessionSteps || this.currentReading.stepCount,
+      counts.baselineSteps || 0,
+      counts.rawSteps || this.currentReading.stepCount
+    );
   }
 
   /**
