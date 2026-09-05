@@ -651,6 +651,15 @@ export default function MultimodalMobilityVerification({
         await sensorManager.startListening(initialMode);
       }
 
+      // Sensor startup is independent from the first cloud write. Enter the
+      // active-segment screen immediately so a slow serverless cold start never
+      // leaves the mobile action button spinning while the device is already
+      // collecting GPS and motion evidence.
+      setIsTracking(true);
+      setIsPaused(false);
+      setShowPublicTransportHub(false);
+      setShowModeSelector(false);
+
       const initialReading = sensorManager.getCurrentReading();
       const activeTargetId = presetJourneyId || journeyId;
 
@@ -674,10 +683,6 @@ export default function MultimodalMobilityVerification({
           setActiveSegmentIndex(0);
           setSegments(res.journey.segments || []);
           journeyStateMachine.startJourney(res.journeyId, initialMode, res.registeredVehicle || registeredVehicle);
-          setIsTracking(true);
-          setIsPaused(false);
-          setShowPublicTransportHub(false);
-          setShowModeSelector(false);
         } else {
           throw new Error(res.error || 'Failed to start journey on server.');
         }
@@ -700,14 +705,10 @@ export default function MultimodalMobilityVerification({
           }
         }
         journeyStateMachine.startJourney(activeTargetId, initialMode, registeredVehicle);
-        setIsTracking(true);
-        setIsPaused(false);
-        setShowPublicTransportHub(false);
-        setShowModeSelector(false);
       }
     } catch (err) {
       console.error('Failed to start journey:', err);
-      setErrorMessage(err.message || 'Failed to start navigation session. Check network or sensor permissions.');
+      setErrorMessage(`${err.message || 'Could not start the cloud session.'} Your local sensor tracking is still active; retry once your connection is available.`);
     } finally {
       setIsStartingJourney(false);
     }

@@ -1,4 +1,5 @@
 const API_BASE = (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/+$/, '') : '') + '/api';
+const REQUEST_TIMEOUT_MS = 20_000;
 
 /**
  * Helper to fetch stored JWT auth token
@@ -41,16 +42,30 @@ async function request(endpoint, options = {}) {
     ...options.headers,
   };
 
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const config = {
     ...options,
     headers,
+    signal: controller.signal,
   };
 
-  const response = await fetch(`${API_BASE}${endpoint}`, config);
-  const data = await response.json().catch(() => ({
-    success: false,
-    error: 'Invalid response from server',
-  }));
+  let response;
+  let data;
+  try {
+    response = await fetch(`${API_BASE}${endpoint}`, config);
+    data = await response.json().catch(() => ({
+      success: false,
+      error: 'Invalid response from server',
+    }));
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('The server took too long to respond. Please check your connection and try again.');
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     const error = new Error(data.error || 'API Request Failed');
