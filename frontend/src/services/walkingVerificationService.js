@@ -414,7 +414,11 @@ export class WalkingVerificationService {
 
       // If hardware GPS speed is not provided by device, compute displacement speed with strict drift rejection
       if (!hasHardwareSpeed) {
-        if (timeDeltaSec >= 1.0 && timeDeltaSec <= 10.0) {
+        // Mobile browsers often coalesce GPS updates to 10–30 seconds to save
+        // battery. Treat those valid fixes as real movement instead of leaving
+        // the live speed at zero; the displacement, accuracy and plausibility
+        // checks below still reject stationary drift and GPS teleport spikes.
+        if (timeDeltaSec >= 1.0 && timeDeltaSec <= 30.0) {
           if (distMeters >= minDriftThresholdM) {
             const calcSpeed = (dKm / (timeDeltaSec / 3600));
             // Discard wild GPS teleport spikes (> 15 km/h for walking)
