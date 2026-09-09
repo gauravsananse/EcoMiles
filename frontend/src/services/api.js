@@ -208,6 +208,52 @@ export const api = {
     return request('/city/transport-intelligence', { method: 'GET' });
   },
 
+  // City Mobility Overview (City Network Module)
+  getCityMobilityOverview: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.dateFilter) params.append('dateFilter', filters.dateFilter);
+    if (filters.modeFilter) params.append('modeFilter', filters.modeFilter);
+    if (filters.isDemo !== undefined) params.append('isDemo', filters.isDemo);
+
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request(`/city-network/overview${qs}`, { method: 'GET' });
+  },
+
+  getCityNetworkDashboard: async (filters = {}) => {
+    const params = new URLSearchParams(filters).toString();
+    return request(`/city-network/overview${params ? `?${params}` : ''}`, { method: 'GET' });
+  },
+
+  getCityNetworkSummary: async (filters = {}) => {
+    const params = new URLSearchParams(filters).toString();
+    return request(`/city-network/summary${params ? `?${params}` : ''}`, { method: 'GET' });
+  },
+
+  getWalkingAnalysis: async (filters = {}) => {
+    const params = new URLSearchParams(filters).toString();
+    return request(`/city-network/walking${params ? `?${params}` : ''}`, { method: 'GET' });
+  },
+
+  getCyclingAnalysis: async (filters = {}) => {
+    const params = new URLSearchParams(filters).toString();
+    return request(`/city-network/cycling${params ? `?${params}` : ''}`, { method: 'GET' });
+  },
+
+  getEvAnalysis: async (filters = {}) => {
+    const params = new URLSearchParams(filters).toString();
+    return request(`/city-network/ev${params ? `?${params}` : ''}`, { method: 'GET' });
+  },
+
+  getPublicTransportAnalysis: async (filters = {}) => {
+    const params = new URLSearchParams(filters).toString();
+    return request(`/city-network/public-transport${params ? `?${params}` : ''}`, { method: 'GET' });
+  },
+
+  getCo2Analysis: async (filters = {}) => {
+    const params = new URLSearchParams(filters).toString();
+    return request(`/city-network/co2${params ? `?${params}` : ''}`, { method: 'GET' });
+  },
+
   // Rewards Marketplace
   getRewards: async (category) => {
     const query = category ? `?category=${category}` : '';

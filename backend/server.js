@@ -40,6 +40,7 @@ const rewardRoutes = require('./routes/rewardRoutes');
 const transitRoutes = require('./routes/transitRoutes');
 const fraudRoutes = require('./routes/fraudRoutes');
 const metroRoutes = require('./routes/metroRoutes');
+const cityNetworkRoutes = require('./routes/cityNetworkRoutes');
 
 // Mount Routes
 app.use('/api/auth', authRoutes);
@@ -48,6 +49,7 @@ app.use('/api/journeys', journeyRoutes);
 app.use('/api/journey', journeyVerificationRoutes);
 app.use('/api/routes', routeRoutes);
 app.use('/api/city', transportIntelligenceRoutes);
+app.use('/api/city-network', cityNetworkRoutes);
 app.use('/api/rewards', rewardRoutes);
 app.use('/api/transit', transitRoutes);
 app.use('/api/fraud', fraudRoutes);

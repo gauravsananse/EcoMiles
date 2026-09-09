@@ -11,7 +11,7 @@ export default defineConfig({
     allowedHosts: true, // Allow all tunnel domains (localhost.run, pinggy, ngrok, cloudflare)
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'http://127.0.0.1:5000',
         changeOrigin: true,
       },
     },
