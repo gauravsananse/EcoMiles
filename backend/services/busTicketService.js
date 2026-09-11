@@ -153,27 +153,41 @@ class BusTicketService {
 
     const today = new Date();
     const pad = (n) => String(n).padStart(2, '0');
-    const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+    const todayLocalStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+    const todayUtcStr = today.toISOString().split('T')[0];
 
-    let ticketDateStr = '';
-    if (data.ticketDate && !isNaN(data.ticketDate.getTime())) {
-      ticketDateStr = `${data.ticketDate.getFullYear()}-${pad(data.ticketDate.getMonth() + 1)}-${pad(data.ticketDate.getDate())}`;
-    }
+    // Helper to format date in YYYY-MM-DD
+    const formatDateYMD = (dateVal, rawDateInput) => {
+      if (typeof rawDateInput === 'string') {
+        const ymdMatch = rawDateInput.trim().match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
+        if (ymdMatch) return `${ymdMatch[1]}-${pad(ymdMatch[2])}-${pad(ymdMatch[3])}`;
+        const dmyMatch = rawDateInput.trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+        if (dmyMatch) return `${dmyMatch[3]}-${pad(dmyMatch[2])}-${pad(dmyMatch[1])}`;
+      }
+      if (dateVal && !isNaN(dateVal.getTime())) {
+        return `${dateVal.getFullYear()}-${pad(dateVal.getMonth() + 1)}-${pad(dateVal.getDate())}`;
+      }
+      return '';
+    };
+
+    const ticketDateStr = formatDateYMD(data.ticketDate, data.date);
+    const ticketDateUtcStr = data.ticketDate && !isNaN(data.ticketDate.getTime()) ? data.ticketDate.toISOString().split('T')[0] : '';
 
     const checks = [];
 
-    // 3. Strict Date Matching Check (Ticket must be issued TODAY)
-    if (!ticketDateStr || ticketDateStr !== todayStr) {
+    // 3. Strict Date Matching Check (Ticket must be issued TODAY - matches local or UTC date)
+    const isDateMatch = ticketDateStr === todayLocalStr || ticketDateStr === todayUtcStr || ticketDateUtcStr === todayLocalStr || ticketDateUtcStr === todayUtcStr;
+    if (!isDateMatch) {
       return {
         success: false,
         errorState: 'TICKET_DATE_INVALID',
-        error: `This ticket date (${ticketDateStr || 'unknown'}) does not match today's date (${todayStr}). Only tickets issued today are accepted.`,
+        error: `This ticket date (${ticketDateStr || 'unknown'}) does not match today's date (${todayLocalStr}). Only tickets issued today are accepted.`,
         checks: [
-          { check: 'Ticket Date Match', pass: false, note: `Ticket date ${ticketDateStr || 'unknown'} does not match current date ${todayStr}` }
+          { check: 'Ticket Date Match', pass: false, note: `Ticket date ${ticketDateStr || 'unknown'} does not match current date ${todayLocalStr}` }
         ],
       };
     }
-    checks.push({ check: 'Ticket Date Match', pass: true, note: `Ticket issued for current date (${todayStr})` });
+    checks.push({ check: 'Ticket Date Match', pass: true, note: `Ticket issued for current date (${ticketDateStr})` });
 
     // 3b. Strict Time Window Check (10-minute tolerance)
     const ticketTimeStr = data.time || data.ticketTimeStr;
@@ -187,8 +201,14 @@ class BusTicketService {
         if (ampm === 'PM' && hours < 12) hours += 12;
         if (ampm === 'AM' && hours === 12) hours = 0;
 
-        const ticketDateTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours, minutes, 0);
-        const diffMinutes = (Date.now() - ticketDateTime.getTime()) / (1000 * 60);
+        let ticketDateTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours, minutes, 0);
+        let diffMinutes = (Date.now() - ticketDateTime.getTime()) / (1000 * 60);
+
+        // If hours is late night (e.g. 23:xx) and current time is early morning (00:xx), ticket was issued yesterday just before midnight
+        if (diffMinutes < -1200 && hours >= 20 && today.getHours() < 4) {
+          ticketDateTime = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1, hours, minutes, 0);
+          diffMinutes = (Date.now() - ticketDateTime.getTime()) / (1000 * 60);
+        }
 
         const ticketClock = `${pad(hours)}:${pad(minutes)}`;
         const nowClock = `${pad(today.getHours())}:${pad(today.getMinutes())}`;

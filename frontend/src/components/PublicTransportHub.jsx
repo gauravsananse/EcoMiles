@@ -31,6 +31,7 @@ import MetroVerificationModal from './MetroVerificationModal';
 import MetroAuditDebugModal from './MetroAuditDebugModal';
 import BusTicketOCRModal from './BusTicketOCRModal';
 import PlaceAutocompleteInput from './PlaceAutocompleteInput';
+import { generateClientTransitRoutes } from '../services/transitFallback';
 
 export default function PublicTransportHub({
   journeyId,
@@ -179,16 +180,32 @@ export default function PublicTransportHub({
       const lat = currentLocation?.lat || 18.5284;
       const lng = currentLocation?.lng || 73.8744;
       const res = await api.searchTransitRoutes(origin, destination, lat, lng, fromPlace, toPlace);
-      if (res.success && res.itineraries && res.itineraries.length > 0) {
+      if (res && res.success && res.itineraries && res.itineraries.length > 0) {
         setRouteResults(res.itineraries);
         setSelectedRoute(res.itineraries[0]);
+      } else {
+        // Fallback to client-side generated dynamic routes
+        const fallbackRoutes = generateClientTransitRoutes(origin, destination, lat, lng, fromPlace, toPlace);
+        if (fallbackRoutes && fallbackRoutes.length > 0) {
+          setRouteResults(fallbackRoutes);
+          setSelectedRoute(fallbackRoutes[0]);
+        } else {
+          setRouteResults([]);
+          setError('No direct supported bus route was found for these locations. Try searching another bus stop or area.');
+        }
+      }
+    } catch (err) {
+      console.warn('[PublicTransportHub] Backend transit route search failed, using client recommendations generator:', err.message);
+      const lat = currentLocation?.lat || 18.5284;
+      const lng = currentLocation?.lng || 73.8744;
+      const fallbackRoutes = generateClientTransitRoutes(origin, destination, lat, lng, fromPlace, toPlace);
+      if (fallbackRoutes && fallbackRoutes.length > 0) {
+        setRouteResults(fallbackRoutes);
+        setSelectedRoute(fallbackRoutes[0]);
       } else {
         setRouteResults([]);
         setError('No direct supported bus route was found for these locations. Try searching another bus stop or area.');
       }
-    } catch (err) {
-      setRouteResults([]);
-      setError('Route recommendations are temporarily unavailable. Please try again.');
     } finally {
       setLoadingRoutes(false);
     }
