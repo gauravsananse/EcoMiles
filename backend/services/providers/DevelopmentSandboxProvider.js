@@ -127,7 +127,7 @@ class DevelopmentSandboxProvider extends BaseVehicleVerificationProvider {
       // User Specific: MH14LM7409 (Verified Electric Vehicle)
       MH14LM7409: {
         registrationNumber: 'MH14LM7409',
-        ownerName: 'GAURAV SANANSE',
+        ownerName: 'SAKSHI BHOSLE',
         ownershipNumber: '1st Owner',
         manufacturer: 'BAJAJ AUTO LIMITED',
         model: 'CHETAK PREMIUM (EV)',
