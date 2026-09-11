@@ -12,13 +12,61 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 
+function convertDevanagariDigits(str) {
+  if (!str) return '';
+  const devanagariMap = {
+    '०': '0', '१': '1', '२': '2', '३': '3', '४': '4',
+    '५': '5', '६': '6', '७': '7', '८': '8', '९': '9',
+  };
+  return String(str).replace(/[०-९]/g, (ch) => devanagariMap[ch] || ch);
+}
+
 function normalizeTicketDate(text) {
-  const iso = text.match(/\b(\d{4})[/-](\d{1,2})[/-](\d{1,2})\b/);
+  const clean = convertDevanagariDigits(text);
+  const iso = clean.match(/\b(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})\b/);
   if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
-  const indian = text.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b/);
+  const indian = clean.match(/\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})\b/);
   if (!indian) return '';
   const year = indian[3].length === 2 ? `20${indian[3]}` : indian[3];
   return `${year}-${indian[2].padStart(2, '0')}-${indian[1].padStart(2, '0')}`;
+}
+
+function extractTicketTime(text) {
+  const clean = convertDevanagariDigits(text);
+  const match = clean.match(/\b(\d{1,2}[:.]\d{2}(?:[:.]\d{2})?(?:\s*[AP]M)?)\b/i);
+  return match ? match[1].replace('.', ':') : '';
+}
+
+function extractTicketNumber(text) {
+  const clean = convertDevanagariDigits(text);
+  const match = clean.match(/(?:ticket|tkt|receipt|serial|no|क्र\.?|तिकीट|क्रमांक)\s*[:#-]?\s*([A-Z0-9/-]{3,20})/i) ||
+                clean.match(/\b([A-Z]{1,3}\d{4,8})\b/) ||
+                clean.match(/\b(\d{5,10})\b/);
+  return match ? match[1].trim() : '';
+}
+
+function extractBusNumber(text) {
+  const clean = convertDevanagariDigits(text);
+  const match = clean.match(/(?:bus|vehicle|बस|गाडी)\s*(?:no|number|क्र\.?)?\s*[:#-]?\s*([A-Z0-9-]{2,16})/i) ||
+                clean.match(/\b(MH\s*[-]?\s*12\s*[-]?\s*[A-Z]{1,3}\s*[-]?\s*\d{1,4})\b/i);
+  return match ? match[1].trim() : '';
+}
+
+function extractRoute(text) {
+  const marathiCorridor = text.match(/([^\n\d]{2,30})\s*ते\s*([^\n\d]{2,30})/);
+  if (marathiCorridor) {
+    return `${marathiCorridor[1].trim()} ⇄ ${marathiCorridor[2].trim()}`;
+  }
+  const clean = convertDevanagariDigits(text);
+  const match = clean.match(/(?:route|line|मार्ग)\s*(?:no|number|क्र\.?)?\s*[:#-]?\s*([^\n]{2,60})/i);
+  return match ? match[1].trim() : '';
+}
+
+function extractFare(text) {
+  const clean = convertDevanagariDigits(text);
+  const match = clean.match(/(?:fare|rs\.?|inr|₹|दर|भाडे|upi\s*[-:]?\s*₹?)\s*[:.-]?\s*(\d{1,4}(?:\.\d{1,2})?)/i) ||
+                clean.match(/₹\s*(\d{1,4}(?:\.\d{1,2})?)/i);
+  return match ? match[1] : '';
 }
 
 export default function BusTicketOCRModal({
@@ -35,7 +83,7 @@ export default function BusTicketOCRModal({
   const [ocrStatus, setOcrStatus] = useState('');
   const [passengerCount, setPassengerCount] = useState(1);
   
-  // These fields stay empty until a real ticket image has been read.
+  // These fields stay empty until a ticket is read, or can be filled manually
   const [ticketNumber, setTicketNumber] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
@@ -75,24 +123,98 @@ export default function BusTicketOCRModal({
       await worker.terminate();
       const text = data.text.trim();
       setOcrRawText(text);
-      setTicketNumber(text.match(/(?:ticket\s*(?:no|number)?|receipt|serial)\s*[:#-]?\s*([A-Z0-9/-]{4,20})/i)?.[1] || '');
-      setDate(normalizeTicketDate(text));
-      setTime(text.match(/\b(\d{1,2}:\d{2}(?:\s*[AP]M)?)\b/i)?.[1] || '');
-      setBusNumber(text.match(/(?:bus|vehicle)\s*(?:no|number)?\s*[:#-]?\s*([A-Z0-9-]{2,16})/i)?.[1] || '');
-      setRoute(text.match(/(?:route|line)\s*(?:no|number)?\s*[:#-]?\s*([^\n]{2,60})/i)?.[1]?.trim() || '');
-      setFare(text.match(/(?:fare|rs\.?|inr|₹)\s*[:.-]?\s*(\d{1,4}(?:\.\d{1,2})?)/i)?.[1] || '');
-      setOcrStatus(text ? 'OCR complete. Review the extracted details before verification.' : 'No readable ticket text found. Upload a clearer photo.');
+
+      const extractedNum = extractTicketNumber(text);
+      const extractedDate = normalizeTicketDate(text);
+      const extractedTime = extractTicketTime(text);
+      const extractedBus = extractBusNumber(text);
+      const extractedRt = extractRoute(text);
+      const extractedFare = extractFare(text);
+
+      if (extractedNum) setTicketNumber(extractedNum);
+      if (extractedDate) setDate(extractedDate);
+      if (extractedTime) setTime(extractedTime);
+      if (extractedBus) setBusNumber(extractedBus);
+      if (extractedRt) setRoute(extractedRt);
+      if (extractedFare) setFare(extractedFare);
+
+      setOcrStatus(text ? 'OCR complete. Review or edit the extracted details below before verification.' : 'No readable ticket text found. You can enter the details manually below.');
     } catch (err) {
-      setOcrStatus('OCR could not read this image. Upload a clearer, well-lit ticket photo.');
+      setOcrStatus('OCR could not read this image. You can enter the details manually below.');
       setError(err.message || 'Ticket OCR failed.');
     }
   };
 
   const handleRunValidation = async () => {
-    if (!uploadedFile || !ocrRawText.trim() || !ticketNumber.trim() || !date.trim()) {
-      setError('Upload a readable ticket photo first. A ticket number and date must be extracted before verification.');
+    if (!uploadedFile) {
+      setError('Please upload or capture a ticket photo first.');
       return;
     }
+
+    if (!ticketNumber.trim()) {
+      setError('Ticket Number is required. Enter it in the Ticket Number field below.');
+      return;
+    }
+
+    if (!date.trim()) {
+      setError('Ticket Date is required (format: YYYY-MM-DD or DD/MM/YYYY).');
+      return;
+    }
+
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+    // Normalize entered date
+    let normEnteredDate = date.trim();
+    if (normEnteredDate.includes('/') || normEnteredDate.includes('.')) {
+      const parts = normEnteredDate.split(/[./-]/);
+      if (parts.length === 3) {
+        if (parts[0].length === 4) {
+          normEnteredDate = `${parts[0]}-${pad(parts[1])}-${pad(parts[2])}`;
+        } else {
+          const yr = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
+          normEnteredDate = `${yr}-${pad(parts[1])}-${pad(parts[0])}`;
+        }
+      }
+    }
+
+    // 1. Strict Date Matching: Ticket must be issued TODAY
+    if (normEnteredDate !== todayStr) {
+      setError(`❌ Date Mismatch: Ticket date (${normEnteredDate}) does not match today's date (${todayStr}). Only tickets issued today can be verified.`);
+      return;
+    }
+
+    // 2. Strict Time Window: 10-minute boarding tolerance
+    if (time.trim()) {
+      const timeMatch = time.trim().match(/(\d{1,2})[:.](\d{2})(?:[:.](\d{2}))?\s*(AM|PM)?/i);
+      if (timeMatch) {
+        let hours = parseInt(timeMatch[1], 10);
+        const minutes = parseInt(timeMatch[2], 10);
+        const ampm = timeMatch[4] ? timeMatch[4].toUpperCase() : null;
+
+        if (ampm === 'PM' && hours < 12) hours += 12;
+        if (ampm === 'AM' && hours === 12) hours = 0;
+
+        const ticketDateTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0);
+        const diffMinutes = (Date.now() - ticketDateTime.getTime()) / (1000 * 60);
+
+        const ticketClock = `${pad(hours)}:${pad(minutes)}`;
+        const nowClock = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+        if (diffMinutes < -3) {
+          setError(`❌ Invalid Ticket Time: Ticket time (${ticketClock}) is in the future compared to current time (${nowClock}).`);
+          return;
+        }
+
+        if (diffMinutes > 10) {
+          const lateMins = Math.round(diffMinutes);
+          setError(`❌ Late Ticket Upload: Ticket was issued at ${ticketClock}, but current time is ${nowClock} (${lateMins} minutes ago). Maximum allowed tolerance is 10 minutes.`);
+          return;
+        }
+      }
+    }
+
     setIsLoading(true);
     setError('');
     setVerificationResult(null);
@@ -103,11 +225,11 @@ export default function BusTicketOCRModal({
       const routeIdentifier = currentRoute?.name || currentRoute?.shortName || route.trim() || 'PMPML Bus';
       const busNo = busNumber.trim() || currentRoute?.routeId || '103';
 
-      const activeRawText = ocrRawText.trim() || `PUNE MAHANAGAR PARIVAHAN MAHAMANDAL LTD\nTicket No: ${ticketNumber}\nDate: ${date}  Time: ${time}\nBus No: ${busNo}\nRoute: ${routeIdentifier}\nFare: Rs. ${fare}\nEco-friendly journey`;
+      const activeRawText = ocrRawText.trim() || `PUNE MAHANAGAR PARIVAHAN MAHAMANDAL LTD\nTicket No: ${ticketNumber}\nDate: ${normEnteredDate}  Time: ${time}\nBus No: ${busNo}\nRoute: ${routeIdentifier}\nFare: Rs. ${fare}\nEco-friendly journey`;
 
       const res = await api.validateBusTicketOCR(activeRawText, {
         ticketNumber: ticketNumber.trim(),
-        date: date.trim(),
+        date: normEnteredDate,
         time: time.trim(),
         busNumber: busNo,
         route: routeIdentifier,
@@ -334,9 +456,13 @@ export default function BusTicketOCRModal({
               marginBottom: '1rem',
             }}
           >
-            <div style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--slate-700)', letterSpacing: '0.04em', marginBottom: '0.65rem', display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--slate-700)', letterSpacing: '0.04em', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '5px' }}>
               <FileText size={14} className="text-blue-600" />
               <span>Extracted Bus Ticket Metadata</span>
+            </div>
+
+            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '0.45rem 0.65rem', marginBottom: '0.75rem', fontSize: '0.72rem', color: '#1e40af' }}>
+              <strong>Boarding Rule:</strong> Ticket must be from today and uploaded within <strong>10 minutes</strong> of issuance. You can review and edit any field below.
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
@@ -345,7 +471,8 @@ export default function BusTicketOCRModal({
                 <input
                   type="text"
                   value={ticketNumber}
-                  readOnly
+                  onChange={(e) => setTicketNumber(e.target.value)}
+                  placeholder="e.g. 59302"
                   style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--slate-300)', fontSize: '0.82rem', fontWeight: 700 }}
                 />
               </div>
@@ -355,7 +482,8 @@ export default function BusTicketOCRModal({
                 <input
                   type="text"
                   value={date}
-                  readOnly
+                  onChange={(e) => setDate(e.target.value)}
+                  placeholder="YYYY-MM-DD"
                   style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--slate-300)', fontSize: '0.82rem' }}
                 />
               </div>
@@ -365,7 +493,8 @@ export default function BusTicketOCRModal({
                 <input
                   type="text"
                   value={time}
-                  readOnly
+                  onChange={(e) => setTime(e.target.value)}
+                  placeholder="HH:MM (e.g. 11:30)"
                   style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--slate-300)', fontSize: '0.82rem' }}
                 />
               </div>
@@ -375,7 +504,8 @@ export default function BusTicketOCRModal({
                 <input
                   type="text"
                   value={busNumber}
-                  readOnly
+                  onChange={(e) => setBusNumber(e.target.value)}
+                  placeholder="e.g. 115"
                   style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--slate-300)', fontSize: '0.82rem' }}
                 />
               </div>
@@ -385,7 +515,8 @@ export default function BusTicketOCRModal({
                 <input
                   type="text"
                   value={route}
-                  readOnly
+                  onChange={(e) => setRoute(e.target.value)}
+                  placeholder="e.g. Symbiosis ⇄ Sus Gaon"
                   style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--slate-300)', fontSize: '0.82rem' }}
                 />
               </div>
@@ -395,7 +526,8 @@ export default function BusTicketOCRModal({
                 <input
                   type="number"
                   value={fare}
-                  readOnly
+                  onChange={(e) => setFare(e.target.value)}
+                  placeholder="e.g. 20"
                   style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--slate-300)', fontSize: '0.82rem', fontWeight: 700 }}
                 />
               </div>
@@ -499,7 +631,7 @@ export default function BusTicketOCRModal({
             <button
               type="button"
               onClick={handleRunValidation}
-              disabled={isLoading || !uploadedFile || !ocrRawText.trim() || !ticketNumber.trim() || !date.trim()}
+              disabled={isLoading || !uploadedFile}
               className="btn btn-primary"
               style={{ padding: '8px 18px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}
             >

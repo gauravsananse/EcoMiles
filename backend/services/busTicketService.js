@@ -1,10 +1,21 @@
 const crypto = require('crypto');
 const MetroTicket = require('../models/MetroTicket'); // Reuse ticket ledger for anti-replay
 
+function convertDevanagariDigits(str) {
+  if (!str) return '';
+  const devanagariMap = {
+    '०': '0', '१': '1', '२': '2', '३': '3', '४': '4',
+    '५': '5', '६': '6', '७': '7', '८': '8', '९': '9',
+  };
+  return String(str).replace(/[०-९]/g, (ch) => devanagariMap[ch] || ch);
+}
+
 class BusTicketService {
   constructor() {
     // Configurable validity window in minutes (default 180 min = 3 hours)
     this.validityWindowMinutes = 180;
+    // Boarding upload tolerance in minutes (default 10 minutes)
+    this.uploadToleranceMinutes = 10;
   }
 
   /**
@@ -15,42 +26,53 @@ class BusTicketService {
       return null;
     }
 
-    const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean);
+    const cleanAsciiText = convertDevanagariDigits(rawText);
+    const lines = cleanAsciiText.split('\n').map((l) => l.trim()).filter(Boolean);
     const fullText = lines.join(' ');
 
-    // Extract Ticket Number (e.g., TKT-9402, 103/9482, No: 83921)
+    // Extract Ticket Number (e.g., TKT-9402, 103/9482, No: 83921, तिकीट क्र. 59302)
     const ticketNoMatch =
-      fullText.match(/(?:TKT|TICKET|NO|TKT NO|REC|SR NO)[.:\s#-]+([A-Z0-9/-]{4,16})/i) ||
+      fullText.match(/(?:TKT|TICKET|NO|TKT NO|REC|SR NO|क्र\.?|तिकीट|क्रमांक)[.:\s#-]+([A-Z0-9/-]{3,16})/i) ||
       fullText.match(/\b([A-Z]{1,3}\d{4,8})\b/) ||
-      fullText.match(/\b(\d{6,10})\b/);
+      fullText.match(/\b(\d{5,10})\b/);
 
-    // Never invent an ID: a ticket without one cannot be protected by the
-    // anti-replay ledger and must be treated as unreadable.
     const ticketNumber = ticketNoMatch ? ticketNoMatch[1].trim() : '';
 
-    // Extract Date (DD/MM/YYYY or DD-MM-YYYY or YYYY-MM-DD)
-    const dateMatch = fullText.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
+    // Extract Date (DD/MM/YYYY or DD-MM-YYYY or YYYY-MM-DD or DD.MM.YY)
+    const dateMatch = fullText.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/) ||
+                      fullText.match(/(\d{1,2})\.(\d{1,2})\.(\d{2,4})/) ||
+                      fullText.match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
     let ticketDate = null;
     if (dateMatch) {
-      let day = parseInt(dateMatch[1], 10);
-      let month = parseInt(dateMatch[2], 10) - 1;
-      let year = parseInt(dateMatch[3], 10);
-      if (year < 100) year += 2000;
+      let day, month, year;
+      if (dateMatch[1].length === 4) {
+        year = parseInt(dateMatch[1], 10);
+        month = parseInt(dateMatch[2], 10) - 1;
+        day = parseInt(dateMatch[3], 10);
+      } else {
+        day = parseInt(dateMatch[1], 10);
+        month = parseInt(dateMatch[2], 10) - 1;
+        year = parseInt(dateMatch[3], 10);
+        if (year < 100) year += 2000;
+      }
       ticketDate = new Date(year, month, day);
     }
 
     // Extract Time (HH:MM or HH:MM:SS AM/PM)
-    const timeMatch = fullText.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?/i);
-    let ticketTimeStr = timeMatch ? timeMatch[0] : '';
+    const timeMatch = fullText.match(/(\d{1,2})[:.](\d{2})(?:[:.](\d{2}))?\s*(AM|PM)?/i);
+    let ticketTimeStr = timeMatch ? timeMatch[0].replace('.', ':').trim() : '';
 
-    // Extract Bus / Route Number (e.g., Bus 103, Route 24, R-103)
+    // Extract Bus / Route Number
+    const busPlateMatch = fullText.match(/\b(MH\s*[-]?\s*12[A-Z0-9-]*)\b/i);
     const routeMatch =
-      fullText.match(/(?:ROUTE|BUS|LINE|RT|VEHICLE)[.:\s#-]+([A-Z0-9/-]{1,8})/i) ||
-      fullText.match(/\b(?:BUS\s*)?(\d{2,4}[A-Z]?)\b/i);
+      busPlateMatch ||
+      fullText.match(/(?:ROUTE|BUS|LINE|RT|VEHICLE|बस|गाडी|मार्ग)[.:\s#-]+([A-Z0-9/-]{1,16})/i) ||
+      fullText.match(/\bBUS\s*[:#-]?\s*([A-Z0-9/-]{1,8})\b/i);
     const busNumber = routeMatch ? routeMatch[1].trim() : '103';
 
-    // Extract Fare (e.g. Rs 15, ₹20, Fare: 25.00)
-    const fareMatch = fullText.match(/(?:RS|INR|₹|FARE)[.:\s]*(\d{1,3}(?:\.\d{2})?)/i);
+    // Extract Fare (e.g. Rs 15, ₹20, Fare: 25.00, UPI - ₹ 10.00)
+    const fareMatch = fullText.match(/(?:RS|INR|₹|FARE|दर|भाडे|UPI\s*[-:]?\s*₹?)[.:\s]*(\d{1,4}(?:\.\d{2})?)/i) ||
+                      fullText.match(/₹\s*(\d{1,4}(?:\.\d{2})?)/i);
     const fare = fareMatch ? parseFloat(fareMatch[1]) : 15.0;
 
     return {
@@ -60,12 +82,12 @@ class BusTicketService {
       ticketTimeStr,
       busNumber,
       fare,
-      operator: fullText.includes('PMPML') ? 'PMPML (Pune)' : (fullText.includes('BEST') ? 'BEST (Mumbai)' : 'City Municipal Transport'),
+      operator: (fullText.includes('PMPML') || rawText.includes('पि.एम.पी.एम.एल')) ? 'PMPML (Pune)' : (fullText.includes('BEST') ? 'BEST (Mumbai)' : 'City Municipal Transport'),
     };
   }
 
   /**
-   * Validate extracted bus ticket against route and anti-replay ledger
+   * Validate extracted bus ticket against route, anti-replay ledger, date, and 10-minute time window
    */
   async validateBusTicket({ rawText, parsedData, selectedRoute, originName, destName, passengerCount = 1, user }) {
     if (parsedData && !parsedData.ticketDate && parsedData.date) {
@@ -85,7 +107,7 @@ class BusTicketService {
       return {
         success: false,
         errorState: 'TICKET_NUMBER_MISSING',
-        error: 'A ticket number could not be read. Upload a clearer image of the complete ticket.',
+        error: 'A ticket number could not be read. Enter it in the Ticket Number field or upload a clearer image.',
       };
     }
 
@@ -98,7 +120,7 @@ class BusTicketService {
       return {
         success: false,
         errorState: 'TICKET_DATE_MISSING',
-        error: 'A valid ticket date could not be read. Upload a clearer image of the complete ticket.',
+        error: 'A valid ticket date could not be read. Enter it in the Date field or upload a clearer image.',
       };
     }
 
@@ -118,30 +140,81 @@ class BusTicketService {
       };
     }
 
-    const now = new Date();
-    const checks = [];
+    const today = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const todayStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
 
-    // 3. Date Matching Check
-    let dateValid = true;
+    let ticketDateStr = '';
     if (data.ticketDate && !isNaN(data.ticketDate.getTime())) {
-      const diffDays = Math.abs(now.setHours(0,0,0,0) - data.ticketDate.setHours(0,0,0,0)) / (1000 * 60 * 60 * 24);
-      if (diffDays > 1) { // allow max 1 day grace for midnight shifts
-        dateValid = false;
-        checks.push({ check: 'Ticket Date Match', pass: false, note: 'Ticket date does not match current date' });
-      } else {
-        checks.push({ check: 'Ticket Date Match', pass: true, note: 'Ticket issued for current date' });
-      }
-    } else {
-      checks.push({ check: 'Ticket Date Match', pass: true, note: 'Date extracted via server timestamp' });
+      ticketDateStr = `${data.ticketDate.getFullYear()}-${pad(data.ticketDate.getMonth() + 1)}-${pad(data.ticketDate.getDate())}`;
     }
 
-    if (!dateValid) {
+    const checks = [];
+
+    // 3. Strict Date Matching Check (Ticket must be issued TODAY)
+    if (!ticketDateStr || ticketDateStr !== todayStr) {
       return {
         success: false,
         errorState: 'TICKET_DATE_INVALID',
-        error: 'This ticket is not valid for today and cannot be verified.',
-        checks,
+        error: `This ticket date (${ticketDateStr || 'unknown'}) does not match today's date (${todayStr}). Only tickets issued today are accepted.`,
+        checks: [
+          { check: 'Ticket Date Match', pass: false, note: `Ticket date ${ticketDateStr || 'unknown'} does not match current date ${todayStr}` }
+        ],
       };
+    }
+    checks.push({ check: 'Ticket Date Match', pass: true, note: `Ticket issued for current date (${todayStr})` });
+
+    // 3b. Strict Time Window Check (10-minute tolerance)
+    const ticketTimeStr = data.time || data.ticketTimeStr;
+    if (ticketTimeStr && String(ticketTimeStr).trim()) {
+      const timeMatch = String(ticketTimeStr).trim().match(/(\d{1,2})[:.](\d{2})(?:[:.](\d{2}))?\s*(AM|PM)?/i);
+      if (timeMatch) {
+        let hours = parseInt(timeMatch[1], 10);
+        const minutes = parseInt(timeMatch[2], 10);
+        const ampm = timeMatch[4] ? timeMatch[4].toUpperCase() : null;
+
+        if (ampm === 'PM' && hours < 12) hours += 12;
+        if (ampm === 'AM' && hours === 12) hours = 0;
+
+        const ticketDateTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hours, minutes, 0);
+        const diffMinutes = (Date.now() - ticketDateTime.getTime()) / (1000 * 60);
+
+        const ticketClock = `${pad(hours)}:${pad(minutes)}`;
+        const nowClock = `${pad(today.getHours())}:${pad(today.getMinutes())}`;
+
+        // If ticket is in the future (> 3 mins tolerance for clock drift)
+        if (diffMinutes < -3) {
+          return {
+            success: false,
+            errorState: 'TICKET_TIME_FUTURE',
+            error: `Ticket time (${ticketClock}) is in the future compared to current time (${nowClock}).`,
+            checks: [
+              ...checks,
+              { check: 'Ticket Time Window', pass: false, note: `Ticket time ${ticketClock} is ahead of current time ${nowClock}` }
+            ],
+          };
+        }
+
+        // If ticket upload is late (> 10 minutes tolerance)
+        if (diffMinutes > this.uploadToleranceMinutes) {
+          const lateMins = Math.round(diffMinutes);
+          return {
+            success: false,
+            errorState: 'TICKET_TIME_EXPIRED',
+            error: `Ticket upload is late by ${lateMins} minutes. Ticket was issued at ${ticketClock}, but current time is ${nowClock}. Maximum allowed tolerance is ${this.uploadToleranceMinutes} minutes.`,
+            checks: [
+              ...checks,
+              { check: 'Ticket Time Window', pass: false, note: `Ticket issued at ${ticketClock} is ${lateMins}m old (max tolerance: ${this.uploadToleranceMinutes}m)` }
+            ],
+          };
+        }
+
+        checks.push({
+          check: 'Ticket Time Window',
+          pass: true,
+          note: `Ticket issued at ${ticketClock} verified within ${this.uploadToleranceMinutes}-minute boarding window (${Math.max(0, Math.round(diffMinutes))}m ago)`,
+        });
+      }
     }
 
     const passengerCapacity = Math.max(1, Math.min(10, Number.parseInt(passengerCount, 10) || 1));

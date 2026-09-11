@@ -29,9 +29,10 @@ describe('Bus Ticket Verification & Anti-Replay Suite', () => {
   const uniqueTicketNum = 'PMPML-' + Math.floor(100000 + Math.random() * 900000);
   let verifiedTicketId;
 
-  it('1. POST /api/metro/bus/verify-ticket should validate realistic PMPML bus ticket OCR', async () => {
+  it('1. POST /api/metro/bus/verify-ticket should validate realistic PMPML bus ticket OCR within 10-min window', async () => {
     const today = new Date().toISOString().split('T')[0];
-    const rawOcr = 'PUNE MAHANAGAR PARIVAHAN MAHAMANDAL LTD\nTicket No: ' + uniqueTicketNum + '\nDate: ' + today + ' Time: 10:15\nBus No: MH12-RN-4821\nRoute: 103 (Katraj - Bitwise)\nFare: Rs. 25.00';
+    const nowTime = new Date().toTimeString().slice(0, 5);
+    const rawOcr = 'PUNE MAHANAGAR PARIVAHAN MAHAMANDAL LTD\nTicket No: ' + uniqueTicketNum + '\nDate: ' + today + ' Time: ' + nowTime + '\nBus No: MH12-RN-4821\nRoute: 103 (Katraj - Bitwise)\nFare: Rs. 25.00';
 
     const res = await request(app)
       .post('/api/metro/bus/verify-ticket')
@@ -40,7 +41,7 @@ describe('Bus Ticket Verification & Anti-Replay Suite', () => {
         parsedData: {
           ticketNumber: uniqueTicketNum,
           date: today,
-          time: '10:15',
+          time: nowTime,
           busNumber: 'MH12-RN-4821',
           route: 'Route 103',
           fare: 25,
@@ -134,10 +135,11 @@ describe('Bus Ticket Verification & Anti-Replay Suite', () => {
 
   it('5. POST /api/metro/bus/verify-ticket should validate ticket for dynamic route and places', async () => {
     const today = new Date().toISOString().split('T')[0];
+    const nowTime = new Date().toTimeString().slice(0, 5);
     const ticketNo = 'PMPML-SYM-' + Math.floor(10000 + Math.random() * 90000);
     const origin = 'Symbiosis University Hospital';
     const destination = 'Sus Gaon';
-    const rawOcr = `PUNE MAHANAGAR PARIVAHAN MAHAMANDAL LTD\nTicket No: ${ticketNo}\nDate: ${today} Time: 11:30\nBus No: 115\nRoute: Symbiosis - Sus Gaon\nFare: Rs. 20.00`;
+    const rawOcr = `PUNE MAHANAGAR PARIVAHAN MAHAMANDAL LTD\nTicket No: ${ticketNo}\nDate: ${today} Time: ${nowTime}\nBus No: 115\nRoute: Symbiosis - Sus Gaon\nFare: Rs. 20.00`;
 
     const res = await request(app)
       .post('/api/metro/bus/verify-ticket')
@@ -146,7 +148,7 @@ describe('Bus Ticket Verification & Anti-Replay Suite', () => {
         parsedData: {
           ticketNumber: ticketNo,
           date: today,
-          time: '11:30',
+          time: nowTime,
           busNumber: '115',
           route: 'Route 115 — Symbiosis ⇄ Sus Gaon',
           fare: 20,
@@ -161,5 +163,70 @@ describe('Bus Ticket Verification & Anti-Replay Suite', () => {
     assert.equal(res.body.success, true);
     assert.equal(res.body.ticket.ticketNumber, ticketNo);
     assert.equal(res.body.ticket.busNumber, '115');
+  });
+
+  it('6. POST /api/metro/bus/verify-ticket should reject ticket upload when late by >10 minutes', async () => {
+    const today = new Date().toISOString().split('T')[0];
+    // Create a time 25 minutes ago
+    const pastTime = new Date(Date.now() - 25 * 60 * 1000).toTimeString().slice(0, 5);
+    const ticketNo = 'PMPML-LATE-' + Math.floor(10000 + Math.random() * 90000);
+
+    const res = await request(app)
+      .post('/api/metro/bus/verify-ticket')
+      .send({
+        rawText: `PMPML\nTicket: ${ticketNo}\nDate: ${today}\nTime: ${pastTime}`,
+        parsedData: {
+          ticketNumber: ticketNo,
+          date: today,
+          time: pastTime,
+          busNumber: '115',
+        },
+      });
+
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+    assert.equal(res.body.errorState, 'TICKET_TIME_EXPIRED');
+    assert.ok(res.body.error.includes('tolerance is 10 minutes'));
+  });
+
+  it('7. POST /api/metro/bus/verify-ticket should reject ticket from wrong date (e.g. past year / yesterday)', async () => {
+    const wrongDate = '2024-09-11'; // Like user's test ticket
+    const ticketNo = 'PMPML-WRONG-' + Math.floor(10000 + Math.random() * 90000);
+
+    const res = await request(app)
+      .post('/api/metro/bus/verify-ticket')
+      .send({
+        rawText: `PMPML\nTicket: ${ticketNo}\nDate: ${wrongDate}\nTime: 12:03`,
+        parsedData: {
+          ticketNumber: ticketNo,
+          date: wrongDate,
+          time: '12:03',
+          busNumber: '115',
+        },
+      });
+
+    assert.equal(res.status, 400);
+    assert.equal(res.body.success, false);
+    assert.equal(res.body.errorState, 'TICKET_DATE_INVALID');
+    assert.ok(res.body.error.includes('does not match today'));
+  });
+
+  it('8. busTicketService.parseTicketOCR should parse Marathi and Devanagari numerals', () => {
+    const busTicketService = require('../services/busTicketService');
+    const marathiOcr = `पि.एम.पी.एम.एल
+११/०९/२६ १२:०३:५९
+सिम्बायोसिस नर्सींग हॉस्टेल ते सुसगाव
+तिकीट क्र. ५९३०२
+UPI - ₹ १०.००
+बस क्र. MH12-RN-4821`;
+
+    const parsed = busTicketService.parseTicketOCR(marathiOcr);
+    assert.ok(parsed, 'Must successfully parse Marathi OCR text');
+    assert.equal(parsed.ticketNumber, '59302');
+    assert.equal(parsed.fare, 10);
+    assert.equal(parsed.busNumber, 'MH12-RN-4821');
+    assert.equal(parsed.operator, 'PMPML (Pune)');
+    assert.ok(parsed.ticketDate instanceof Date);
+    assert.equal(parsed.ticketTimeStr, '12:03:59');
   });
 });
