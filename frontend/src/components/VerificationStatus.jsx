@@ -17,6 +17,7 @@ export default function VerificationStatus({
   vehicleData,
   onReset,
   onTestEV,
+  onReverifyAsEV,
 }) {
   if (!errorState && !message) return null;
 
@@ -205,13 +206,54 @@ export default function VerificationStatus({
           <strong>Why is this restricted?</strong> Green Credits EV Mobility & QR Pass issuance are exclusively reserved for 100% Electric Vehicles (EVs) to incentivize zero-emission travel. Petrol and diesel vehicles do not qualify for EV carbon offset tokens.
         </div>
 
+        {/* Re-verify as EV button if vehicle actually has a green plate */}
+        <div style={{
+          background: '#ecfdf5',
+          border: '1px solid #a7f3d0',
+          borderRadius: '10px',
+          padding: '0.85rem 1rem',
+          marginBottom: '1.25rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '0.75rem',
+        }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#065f46' }}>
+              Is {regNo} an Electric Vehicle with a Green Plate?
+            </div>
+            <div style={{ fontSize: '0.78rem', color: '#047857', marginTop: '2px' }}>
+              Some Indian RTOs issue standard series for EVs. Click below to verify as an Electric Vehicle.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onReverifyAsEV ? onReverifyAsEV(regNo) : (onTestEV && onTestEV(regNo, { isEV: true }))}
+            className="btn btn-primary"
+            style={{ fontSize: '0.82rem', padding: '0.45rem 1rem', background: '#059669', borderColor: '#047857', color: '#ffffff', fontWeight: 700 }}
+          >
+            <Zap size={14} fill="#ffffff" color="#ffffff" />
+            <span>Verify as Electric Vehicle</span>
+          </button>
+        </div>
+
         {/* Test with EV shortcut buttons */}
         {onTestEV && (
           <div style={{ borderTop: '1px solid #fed7aa', paddingTop: '1rem', marginTop: '0.5rem' }}>
             <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--slate-600)', marginBottom: '0.5rem' }}>
-              Want to test with a verified Electric Vehicle?
+              Quick Test with Verified Electric Vehicles:
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={() => onTestEV('MH14LM7409', { isEV: true })}
+                className="btn btn-secondary"
+                style={{ fontSize: '0.78rem', padding: '0.35rem 0.75rem', borderColor: '#a7f3d0', background: '#ecfdf5', color: '#065f46', fontWeight: 700 }}
+              >
+                <Zap size={13} fill="#059669" color="#059669" />
+                <span>Chetak EV (MH14LM7409)</span>
+              </button>
               <button
                 type="button"
                 onClick={() => onTestEV('MH20HK3845')}

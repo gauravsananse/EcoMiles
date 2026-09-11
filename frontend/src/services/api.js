@@ -114,10 +114,10 @@ export const api = {
   },
 
   // Vehicle RC Verification
-  verifyVehicle: async (registrationNumber) => {
+  verifyVehicle: async (registrationNumber, options = {}) => {
     return request('/vehicles/verify', {
       method: 'POST',
-      body: JSON.stringify({ registrationNumber }),
+      body: JSON.stringify({ registrationNumber, ...options }),
     });
   },
 

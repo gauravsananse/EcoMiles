@@ -103,7 +103,7 @@ class DevelopmentSandboxProvider extends BaseVehicleVerificationProvider {
     return true;
   }
 
-  async verify(registrationNumber) {
+  async verify(registrationNumber, options = {}) {
     // Realistic API network turnaround latency
     await new Promise((resolve) => setTimeout(resolve, 350));
 
@@ -123,6 +123,19 @@ class DevelopmentSandboxProvider extends BaseVehicleVerificationProvider {
         rtoLocation: 'Chhatrapati Sambhajinagar (Aurangabad), Maharashtra',
         registrationDate: '2022-06-18',
         status: 'Active (RC Fitness Valid till 2037)',
+      },
+      // User Specific: MH14LM7409 (Verified Electric Vehicle)
+      MH14LM7409: {
+        registrationNumber: 'MH14LM7409',
+        ownerName: 'GAURAV SANANSE',
+        ownershipNumber: '1st Owner',
+        manufacturer: 'BAJAJ AUTO LIMITED',
+        model: 'CHETAK PREMIUM (EV)',
+        fuelType: 'ELECTRIC',
+        vehicleClass: 'Two Wheeler (2W-EV)',
+        rtoLocation: 'Pimpri-Chinchwad (PCMC), Maharashtra (MH-14)',
+        registrationDate: '2023-10-25',
+        status: 'Active (RC Fitness Valid till 2038)',
       },
       // User Specific: Bajaj Chetak EV
       MH20HK3845: {
@@ -218,7 +231,11 @@ class DevelopmentSandboxProvider extends BaseVehicleVerificationProvider {
     };
 
     if (verifiedRegistry[cleanReg]) {
-      const match = verifiedRegistry[cleanReg];
+      const match = { ...verifiedRegistry[cleanReg] };
+      if (options.isEV) {
+        match.fuelType = 'ELECTRIC';
+        if (!match.vehicleClass.includes('EV')) match.vehicleClass += ' (EV)';
+      }
       return {
         success: true,
         verified: true,
@@ -238,13 +255,13 @@ class DevelopmentSandboxProvider extends BaseVehicleVerificationProvider {
     }
 
     // 2. Dynamic Universal Real-World Resolver for ANY other Indian plate
-    return this.resolveDynamicPlate(cleanReg);
+    return this.resolveDynamicPlate(cleanReg, options);
   }
 
   /**
    * Intelligently resolves any valid Indian plate into authentic Vahan vehicle specs
    */
-  resolveDynamicPlate(reg) {
+  resolveDynamicPlate(reg, options = {}) {
     const stateCode = reg.substring(0, 2);
     const rtoPrefix = reg.length >= 4 ? reg.substring(0, 4) : reg.substring(0, 2);
 
@@ -259,8 +276,8 @@ class DevelopmentSandboxProvider extends BaseVehicleVerificationProvider {
     }
     const positiveHash = Math.abs(hash);
 
-    // Check if plate explicitly denotes EV (contains EV series, or starts with green series)
-    const isExplicitEV = reg.includes('EV') || reg.includes('EB') || reg.includes('EE');
+    // Check if plate explicitly denotes EV (options.isEV, contains EV series, or starts with green series)
+    const isExplicitEV = Boolean(options.isEV) || reg.includes('EV') || reg.includes('EB') || reg.includes('EE');
 
     // EV Models catalog
     const evCatalog = [

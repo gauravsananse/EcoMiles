@@ -109,7 +109,7 @@ class VehicleVerificationService {
   /**
    * Core verification execution
    */
-  async verifyVehicleRegistration(rawRegistrationNumber) {
+  async verifyVehicleRegistration(rawRegistrationNumber, options = {}) {
     const registrationNumber = this.normalizeRegistrationNumber(rawRegistrationNumber);
 
     // 1. Format validation
@@ -132,7 +132,7 @@ class VehicleVerificationService {
 
     try {
       // 3. Call Provider API
-      const result = await this.provider.verify(registrationNumber);
+      const result = await this.provider.verify(registrationNumber, options);
 
       if (!result.success || result.notFound) {
         return {

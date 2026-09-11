@@ -69,7 +69,7 @@ export default function EVRegistration({ user, onOpenAuth }) {
   };
 
   // 1. Verify Vehicle against RC Gateway
-  const handleVerifyVehicle = async (registrationNumber) => {
+  const handleVerifyVehicle = async (registrationNumber, options = {}) => {
     setIsVerifying(true);
     setViewState('VERIFYING');
     setErrorState(null);
@@ -78,7 +78,7 @@ export default function EVRegistration({ user, onOpenAuth }) {
     setVerifiedVehicleData(null);
 
     try {
-      const res = await api.verifyVehicle(registrationNumber);
+      const res = await api.verifyVehicle(registrationNumber, options);
       if (res.success && res.data) {
         setVerifiedVehicleData(res.data);
         setViewState('EV_CONFIRMED');
@@ -240,6 +240,8 @@ export default function EVRegistration({ user, onOpenAuth }) {
               message={errorMessage}
               vehicleData={errorVehicleData}
               onReset={handleResetSearch}
+              onReverifyAsEV={(plate) => handleVerifyVehicle(plate, { isEV: true })}
+              onTestEV={(plate, opts) => handleVerifyVehicle(plate, opts || { isEV: true })}
             />
           )}
 

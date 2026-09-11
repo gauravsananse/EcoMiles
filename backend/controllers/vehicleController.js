@@ -7,7 +7,7 @@ const qrService = require('../services/qrService');
 // @access  Public (or Protected)
 exports.verifyVehicle = async (req, res) => {
   try {
-    const { registrationNumber } = req.body;
+    const { registrationNumber, isEV, evModel } = req.body;
 
     if (!registrationNumber || !registrationNumber.trim()) {
       return res.status(400).json({
@@ -47,7 +47,7 @@ exports.verifyVehicle = async (req, res) => {
     }
 
     // Execute RC verification via provider adapter
-    const result = await vehicleVerificationService.verifyVehicleRegistration(cleanReg);
+    const result = await vehicleVerificationService.verifyVehicleRegistration(cleanReg, { isEV, evModel });
 
     if (!result.success) {
       const statusCode =

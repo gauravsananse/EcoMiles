@@ -7,6 +7,7 @@ export default function VehicleSearch({ onVerify, isVerifying, disabled }) {
   const [regInput, setRegInput] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [validationError, setValidationError] = useState('');
+  const [isGreenPlateEV, setIsGreenPlateEV] = useState(true);
 
   // Normalize Indian plate number
   const handleInputChange = (e) => {
@@ -38,7 +39,7 @@ export default function VehicleSearch({ onVerify, isVerifying, disabled }) {
     }
 
     setValidationError('');
-    onVerify(cleanReg);
+    onVerify(cleanReg, { isEV: isGreenPlateEV });
   };
 
   return (
@@ -73,6 +74,34 @@ export default function VehicleSearch({ onVerify, isVerifying, disabled }) {
               spellCheck="false"
             />
           </div>
+        </div>
+
+        {/* Green Plate EV Toggle */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '0.6rem',
+          margin: '0.85rem auto 1.25rem',
+          background: isGreenPlateEV ? '#ecfdf5' : '#f8fafc',
+          border: isGreenPlateEV ? '1px solid #a7f3d0' : '1px solid var(--slate-200)',
+          borderRadius: '10px',
+          padding: '0.5rem 1rem',
+          maxWidth: '360px',
+          cursor: 'pointer',
+          transition: 'all 0.2s ease',
+        }} onClick={() => setIsGreenPlateEV(!isGreenPlateEV)}>
+          <input
+            type="checkbox"
+            id="greenPlateToggle"
+            checked={isGreenPlateEV}
+            onChange={(e) => setIsGreenPlateEV(e.target.checked)}
+            style={{ width: '16px', height: '16px', accentColor: '#10b981', cursor: 'pointer' }}
+            onClick={(e) => e.stopPropagation()}
+          />
+          <label htmlFor="greenPlateToggle" style={{ fontSize: '0.82rem', fontWeight: 700, color: isGreenPlateEV ? '#065f46' : 'var(--slate-600)', cursor: 'pointer' }}>
+            🟢 Green Number Plate (Electric Vehicle / EV)
+          </label>
         </div>
 
         {validationError && (
