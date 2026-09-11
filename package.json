@@ -1,0 +1,10 @@
+{
+  "name": "ecomiles",
+  "version": "1.0.0",
+  "private": true,
+  "description": "EcoMiles — Every Mile, Green Smile",
+  "scripts": {
+    "build": "npm --prefix frontend install && npm --prefix frontend run build",
+    "start": "npm --prefix backend start"
+  }
+}
