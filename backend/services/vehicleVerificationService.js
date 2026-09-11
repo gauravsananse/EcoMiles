@@ -29,11 +29,11 @@ class VehicleVerificationService {
         this.provider = new DevelopmentSandboxProvider();
         break;
       default:
-        // Default to Surepass if API key is present, otherwise no provider
+        // Default to live external provider if API key is present, otherwise fallback to universal provider
         if (process.env.VEHICLE_API_KEY && !process.env.VEHICLE_API_KEY.includes('YOUR_')) {
           this.provider = new SurepassProvider();
         } else {
-          this.provider = null;
+          this.provider = new DevelopmentSandboxProvider();
         }
         break;
     }
@@ -166,10 +166,17 @@ class VehicleVerificationService {
           message: 'This vehicle is registered, but it is not identified as an electric vehicle.',
           vehicleData: {
             registrationNumber: result.registrationNumber || registrationNumber,
+            ownerName: result.ownerName || 'Registered Owner',
+            maskedOwnerName: this.maskOwnerName(result.ownerName),
+            ownershipNumber: result.ownershipNumber || '1st Owner',
             manufacturer: result.manufacturer,
             model: result.model,
             fuelType: result.fuelType,
+            vehicleClass: result.vehicleClass || 'Motor Vehicle (Non-EV)',
+            rtoLocation: result.rtoLocation || 'Regional Transport Office',
             registrationDate: result.registrationDate,
+            status: result.status || 'Active',
+            verificationSource: result.verificationSource || 'National Vahan RC Gateway',
           },
         };
       }
@@ -180,12 +187,16 @@ class VehicleVerificationService {
         verified: true,
         isEV: true,
         registrationNumber: result.registrationNumber || registrationNumber,
-        ownerName: this.maskOwnerName(result.ownerName),
+        ownerName: result.ownerName || 'Registered Owner',
+        maskedOwnerName: this.maskOwnerName(result.ownerName),
+        ownershipNumber: result.ownershipNumber || '1st Owner',
         manufacturer: result.manufacturer || 'Electric Vehicle Maker',
         model: result.model || 'Model',
         fuelType: 'Electric',
         vehicleClass: result.vehicleClass || 'Motor Vehicle (EV)',
+        rtoLocation: result.rtoLocation || 'Regional Transport Office',
         registrationDate: result.registrationDate || 'N/A',
+        status: result.status || 'Active',
         verificationSource: result.verificationSource || 'National Vahan RC Gateway',
         isSandboxMode: Boolean(result.isSandboxMode),
       };

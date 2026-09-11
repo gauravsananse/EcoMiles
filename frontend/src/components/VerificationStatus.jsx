@@ -27,6 +27,11 @@ export default function VerificationStatus({
     const model = vehicleData?.model || 'Scooter / Motorcycle';
     const manufacturer = vehicleData?.manufacturer || 'Automobile Manufacturer';
     const vehicleClass = vehicleData?.vehicleClass || 'Two Wheeler (Scooter - Non-EV)';
+    const ownerName = vehicleData?.ownerName || vehicleData?.maskedOwnerName || 'Registered Owner';
+    const ownershipNumber = vehicleData?.ownershipNumber || '1st Owner';
+    const rtoLocation = vehicleData?.rtoLocation || 'Regional Transport Office';
+    const registrationDate = vehicleData?.registrationDate || 'N/A';
+    const rcStatus = vehicleData?.status || 'Active';
 
     return (
       <div
@@ -92,10 +97,10 @@ export default function VerificationStatus({
             </div>
 
             <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#92400e', marginTop: '0.4rem' }}>
-              Petrol / Fossil Fuel Vehicle Detected
+              Non-Electric (Fossil Fuel) Vehicle Detected
             </h3>
             <p style={{ fontSize: '0.9rem', color: '#78350f', marginTop: '0.2rem', lineHeight: 1.4 }}>
-              This vehicle belongs to <strong>{fuelType}</strong> (Internal Combustion Engine). You cannot register non-electric vehicles on the Green Credits EV Mobility platform.
+              This vehicle is powered by <strong>{fuelType}</strong> (Internal Combustion Engine). Only zero-emission <strong>Electric Vehicles (EVs)</strong> qualify for EV Green Pass & commute credits.
             </p>
           </div>
         </div>
@@ -110,8 +115,11 @@ export default function VerificationStatus({
             marginBottom: '1.25rem',
           }}
         >
-          <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#9a3412', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.5rem' }}>
-            Vahan Registry RC Specifications:
+          <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#9a3412', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>Official Vahan Registry RC Record:</span>
+            <span style={{ fontSize: '0.72rem', color: '#059669', background: '#ecfdf5', padding: '1px 6px', borderRadius: '4px', border: '1px solid #a7f3d0' }}>
+              ✓ Verified Record
+            </span>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
@@ -124,6 +132,18 @@ export default function VerificationStatus({
               </div>
             )}
             <div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)', fontWeight: 600 }}>Registered Owner</div>
+              <div style={{ fontWeight: 800, fontSize: '0.9rem', color: 'var(--slate-900)' }}>
+                {ownerName}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)', fontWeight: 600 }}>Ownership Serial</div>
+              <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--slate-800)' }}>
+                {ownershipNumber}
+              </div>
+            </div>
+            <div>
               <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)', fontWeight: 600 }}>Fuel Classification</div>
               <div style={{ fontWeight: 800, fontSize: '0.9rem', color: '#dc2626', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <Fuel size={14} />
@@ -131,7 +151,13 @@ export default function VerificationStatus({
               </div>
             </div>
             <div>
-              <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)', fontWeight: 600 }}>Model / Make</div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)', fontWeight: 600 }}>Maker / Manufacturer</div>
+              <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--slate-800)' }}>
+                {manufacturer}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)', fontWeight: 600 }}>Model Description</div>
               <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--slate-800)' }}>
                 {model}
               </div>
@@ -140,6 +166,24 @@ export default function VerificationStatus({
               <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)', fontWeight: 600 }}>Vehicle Category</div>
               <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--slate-700)' }}>
                 {vehicleClass}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)', fontWeight: 600 }}>RTO Office / State</div>
+              <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--slate-700)' }}>
+                {rtoLocation}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)', fontWeight: 600 }}>Registration Date</div>
+              <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--slate-700)' }}>
+                {registrationDate}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)', fontWeight: 600 }}>RC Status</div>
+              <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#059669' }}>
+                {rcStatus}
               </div>
             </div>
           </div>

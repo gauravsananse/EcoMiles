@@ -68,6 +68,16 @@ export default function VehicleDetails({
         </div>
 
         <div className="detail-item">
+          <div className="detail-label">Ownership Serial</div>
+          <div className="detail-value">{vehicleData.ownershipNumber || '1st Owner'}</div>
+        </div>
+
+        <div className="detail-item">
+          <div className="detail-label">RTO Office / State</div>
+          <div className="detail-value">{vehicleData.rtoLocation || 'Regional Transport Office'}</div>
+        </div>
+
+        <div className="detail-item">
           <div className="detail-label">{t('ev.registrationDate')}</div>
           <div className="detail-value" style={{ fontSize: '0.95rem' }}>
             {vehicleData.registrationDate || 'N/A'}
