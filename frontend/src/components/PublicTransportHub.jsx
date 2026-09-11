@@ -41,7 +41,13 @@ export default function PublicTransportHub({
   initialMode = null,
 }) {
   // Transit Mode Selection: null (Chooser) | 'BUS' | 'METRO'
-  const [activeTransitMode, setActiveTransitMode] = useState(initialMode);
+  const [activeTransitMode, setActiveTransitMode] = useState(initialMode || 'BUS');
+
+  useEffect(() => {
+    if (initialMode) {
+      setActiveTransitMode(initialMode);
+    }
+  }, [initialMode]);
 
   // Metro Modal & Audit State
   const [showMetroModal, setShowMetroModal] = useState(false);
@@ -49,9 +55,9 @@ export default function PublicTransportHub({
   const [auditJourneyId, setAuditJourneyId] = useState(null);
 
   // Bus Autocomplete & Location State
-  const [fromText, setFromText] = useState('Katraj Bus Terminal');
+  const [fromText, setFromText] = useState('');
   const [fromPlace, setFromPlace] = useState(null);
-  const [toText, setToText] = useState('Bitwise Tower');
+  const [toText, setToText] = useState('');
   const [toPlace, setToPlace] = useState(null);
 
   // Bus Stops & Routes
@@ -83,8 +89,18 @@ export default function PublicTransportHub({
   // Fetch nearby stops on mount
   useEffect(() => {
     fetchNearbyStops();
-    handleSearchRoutes(); // Pre-populate Katraj -> Bitwise Tower by default
   }, [currentLocation?.lat, currentLocation?.lng]);
+
+  // Refresh recommendations shortly after both locations are entered or picked.
+  useEffect(() => {
+    if (!fromText.trim() || !toText.trim()) {
+      setRouteResults([]);
+      setSelectedRoute(null);
+      return undefined;
+    }
+    const timer = setTimeout(() => handleSearchRoutes(fromText, toText), 550);
+    return () => clearTimeout(timer);
+  }, [fromText, toText, fromPlace, toPlace]);
 
   const fetchNearbyStops = async () => {
     setLoadingStops(true);
@@ -153,76 +169,26 @@ export default function PublicTransportHub({
     }
   };
 
-  const handleSearchRoutes = async () => {
+  const handleSearchRoutes = async (origin = fromText, destination = toText) => {
+    if (!origin.trim() || !destination.trim()) return;
     setLoadingRoutes(true);
     setError('');
+    setSelectedRoute(null);
+    setVerifiedTicketInfo(null);
     try {
       const lat = currentLocation?.lat || 18.5284;
       const lng = currentLocation?.lng || 73.8744;
-      const res = await api.searchTransitRoutes(fromText, toText, lat, lng);
+      const res = await api.searchTransitRoutes(origin, destination, lat, lng, fromPlace, toPlace);
       if (res.success && res.itineraries && res.itineraries.length > 0) {
         setRouteResults(res.itineraries);
         setSelectedRoute(res.itineraries[0]);
       } else {
-        throw new Error('No itineraries found');
+        setRouteResults([]);
+        setError('No direct supported bus route was found for these locations. Try searching another bus stop or area.');
       }
     } catch (err) {
-      // Prototype itinerary for Katraj -> Bitwise Tower
-      const fallbackRoutes = [
-        {
-          itineraryId: 'ITIN-KATRAJ-BITWISE',
-          routeId: '103',
-          name: 'Route 103 — Katraj ⇄ Swargate ⇄ Bitwise Tower',
-          shortName: 'Bus 103 (PMPML)',
-          mode: 'BUS',
-          operator: 'PMPML',
-          origin: { name: 'Katraj Bus Terminal', lat: 18.4575, lng: 73.8677 },
-          destination: { name: 'Bitwise Tower', lat: 18.5604, lng: 73.7804 },
-          totalDurationMinutes: 34,
-          totalDistanceKm: 8.4,
-          transfers: 0,
-          estimatedGreenCredits: 18,
-          geometry: [
-            [18.4575, 73.8677],
-            [18.4720, 73.8600],
-            [18.5010, 73.8580],
-            [18.5300, 73.8400],
-            [18.5604, 73.7804],
-          ],
-          stops: [
-            { stopId: 'ST-1', name: 'Katraj Terminal', lat: 18.4575, lng: 73.8677 },
-            { stopId: 'ST-2', name: 'Swargate Bus Stand', lat: 18.5010, lng: 73.8580 },
-            { stopId: 'ST-3', name: 'Shivajinagar Station', lat: 18.5300, lng: 73.8400 },
-            { stopId: 'ST-4', name: 'Bitwise Tower Stop', lat: 18.5604, lng: 73.7804 },
-          ],
-          steps: [
-            { stepIndex: 1, type: 'WALK', instruction: 'Walk 80 m to Katraj Bus Stand', durationMinutes: 1, distanceMeters: 80 },
-            { stepIndex: 2, type: 'BUS', instruction: 'Board PMPML Bus 103 towards Bitwise Tower', durationMinutes: 30, distanceKm: 8.2 },
-            { stepIndex: 3, type: 'WALK', instruction: 'Walk 120 m to Bitwise Tower Entrance', durationMinutes: 2, distanceMeters: 120 },
-          ],
-        },
-        {
-          itineraryId: 'ITIN-104',
-          routeId: '104',
-          name: 'Route 104 — Shivajinagar ⇄ Aundh / Baner',
-          shortName: 'Bus 104',
-          mode: 'BUS',
-          operator: 'PMPML',
-          origin: { name: 'Shivajinagar Station', lat: 18.5300, lng: 73.8400 },
-          destination: { name: 'Baner Road', lat: 18.5590, lng: 73.7868 },
-          totalDurationMinutes: 48,
-          totalDistanceKm: 10.5,
-          transfers: 1,
-          estimatedGreenCredits: 20,
-          steps: [
-            { stepIndex: 1, type: 'WALK', instruction: 'Walk 200 m to Station', durationMinutes: 3, distanceMeters: 200 },
-            { stepIndex: 2, type: 'BUS', instruction: 'Board Bus 104 towards Baner', durationMinutes: 38, distanceKm: 9.8 },
-            { stepIndex: 3, type: 'WALK', instruction: 'Walk 450 m to Destination', durationMinutes: 7, distanceMeters: 450 },
-          ],
-        },
-      ];
-      setRouteResults(fallbackRoutes);
-      setSelectedRoute(fallbackRoutes[0]);
+      setRouteResults([]);
+      setError('Route recommendations are temporarily unavailable. Please try again.');
     } finally {
       setLoadingRoutes(false);
     }
@@ -251,11 +217,14 @@ export default function PublicTransportHub({
         destination: ocrResult.ticket?.destination || toText,
         fare: ocrResult.ticket?.fare,
         busNumber: ocrResult.ticket?.busNumber,
+        joinCode: ocrResult.ticket?.joinCode || null,
+        passengerCapacity: ocrResult.ticket?.passengerCapacity || 1,
+        passengerSlotsUsed: ocrResult.ticket?.passengerSlotsUsed || 1,
         isOperatorAuthenticated: ocrResult.isOperatorAuthenticated ?? false,
         verificationMessage: ocrResult.message,
       },
-      passengers: 1,
-      totalCapacity: 1,
+      passengers: ocrResult.ticket?.passengerSlotsUsed || 1,
+      totalCapacity: ocrResult.ticket?.passengerCapacity || 1,
       isCoTraveller: false,
     });
   };
@@ -333,20 +302,22 @@ export default function PublicTransportHub({
     setError('');
 
     try {
-      const res = await api.joinJourneyViaQR(journeyId || 'active_journey', joinQrInput.trim());
+      const res = await api.joinSharedBusTicket(joinQrInput.trim());
       if (res.success) {
         setJoinSuccessInfo(res);
         setShowJoinModal(false);
         setVerifiedTicketInfo({
           ticket: {
-            ticketNumber: res.ticketNumber,
-            operator: res.operator,
-            source: res.source,
-            destination: res.destination,
-            passengerCount: res.passengerCount,
+            _id: res.ticket?._id,
+            ticketNumber: res.ticket?.ticketNumber,
+            operator: res.ticket?.operator,
+            busNumber: res.ticket?.busNumber,
+            fare: res.ticket?.fare,
+            passengerCapacity: res.ticket?.passengerCapacity,
+            passengerSlotsUsed: res.ticket?.passengerSlotsUsed,
           },
-          passengers: res.usedSlots,
-          totalCapacity: res.passengerCount,
+          passengers: res.ticket?.passengerSlotsUsed,
+          totalCapacity: res.ticket?.passengerCapacity,
           isCoTraveller: true,
         });
       }
@@ -453,7 +424,7 @@ export default function PublicTransportHub({
             style={{ padding: '6px 10px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '4px', color: '#1d4ed8', borderColor: '#bfdbfe', background: '#eff6ff' }}
           >
             <QrCode size={14} />
-            <span>Join via QR</span>
+            <span>Join with Code</span>
           </button>
 
           <button
@@ -475,7 +446,12 @@ export default function PublicTransportHub({
             label="From (Origin Bus Stop / Terminal)"
             placeholder="Search bus stop, terminal, or address (e.g. Katraj)..."
             value={fromText}
-            onChange={(val) => setFromText(val)}
+            onChange={(val) => {
+              setFromText(val);
+              setFromPlace(null);
+              setSelectedRoute(null);
+              setVerifiedTicketInfo(null);
+            }}
             transitModeBias="BUS"
             currentLocation={currentLocation}
             showCurrentLocationOption={true}
@@ -490,7 +466,12 @@ export default function PublicTransportHub({
             label="To (Destination)"
             placeholder="Search destination, office, or bus stand (e.g. Bitwise Tower)..."
             value={toText}
-            onChange={(val) => setToText(val)}
+            onChange={(val) => {
+              setToText(val);
+              setToPlace(null);
+              setSelectedRoute(null);
+              setVerifiedTicketInfo(null);
+            }}
             transitModeBias="BUS"
             currentLocation={currentLocation}
             onSelectPlace={(place) => {
@@ -511,8 +492,8 @@ export default function PublicTransportHub({
         </button>
       </div>
 
-      {/* Bus Ticket Verification Section Card */}
-      <div
+      {/* Ticket verification is only available after a recommended bus is selected. */}
+      {selectedRoute && <div
         style={{
           border: verifiedTicketInfo ? '1.5px solid #a7f3d0' : '1px solid #bfdbfe',
           background: verifiedTicketInfo ? '#ecfdf5' : '#eff6ff',
@@ -540,12 +521,14 @@ export default function PublicTransportHub({
             </div>
             <div>
               <div style={{ fontWeight: 800, fontSize: '0.92rem', color: verifiedTicketInfo ? '#065f46' : '#1e40af' }}>
-                {verifiedTicketInfo ? 'Bus Ticket Verified & Attached' : 'Bus Ticket Verification Required'}
+                {verifiedTicketInfo
+                  ? `Ticket verified for ${selectedRoute.shortName || selectedRoute.routeId}`
+                  : `Verify ticket for ${selectedRoute.shortName || selectedRoute.routeId}`}
               </div>
               <div style={{ fontSize: '0.75rem', color: verifiedTicketInfo ? '#047857' : '#3b82f6' }}>
                 {verifiedTicketInfo
-                  ? `Ticket #${verifiedTicketInfo.ticket.ticketNumber} • Bus ${verifiedTicketInfo.ticket.busNumber || '103'} • ₹${verifiedTicketInfo.ticket.fare || '25'}`
-                  : 'Scan or upload your bus ticket for OCR validation and anti-replay ledger check'}
+                  ? `Ticket #${verifiedTicketInfo.ticket.ticketNumber} • Bus ${verifiedTicketInfo.ticket.busNumber || selectedRoute.routeId || 'Bus'} • ₹${verifiedTicketInfo.ticket.fare || '25'}`
+                  : `Selected route: ${selectedRoute.name}. Scan or upload its ticket for OCR validation.`}
               </div>
             </div>
           </div>
@@ -589,7 +572,13 @@ export default function PublicTransportHub({
             <strong>Note:</strong> Ticket OCR validated &bull; Cryptographic anti-replay hash recorded in database &bull; Official operator verification unavailable in demo mode.
           </div>
         )}
-      </div>
+        {verifiedTicketInfo?.ticket?.joinCode && (
+          <div style={{ marginTop: '0.75rem', padding: '0.65rem 0.8rem', background: '#ffffff', border: '1px dashed #34d399', borderRadius: '8px', fontSize: '0.78rem', color: '#065f46' }}>
+            <strong>Shared-ticket join code:</strong> <span style={{ fontWeight: 900, letterSpacing: '0.1em' }}>{verifiedTicketInfo.ticket.joinCode}</span>
+            <span style={{ marginLeft: '0.4rem' }}>— {verifiedTicketInfo.ticket.passengerSlotsUsed}/{verifiedTicketInfo.ticket.passengerCapacity} passenger slots used.</span>
+          </div>
+        )}
+      </div>}
 
       {/* Available Transit Itineraries */}
       {routeResults.length > 0 && (
@@ -641,6 +630,11 @@ export default function PublicTransportHub({
                     <span>🔄 {itin.transfers === 0 ? 'Direct Route (0 transfers)' : `${itin.transfers} Transfer`}</span>
                     <span>&bull;</span>
                     <span>🚌 {itin.operator || 'PMPML'}</span>
+                  </div>
+                  <div style={{ marginTop: '0.55rem', fontSize: '0.76rem', fontWeight: 700, color: isSelected ? '#1d4ed8' : '#475569' }}>
+                    {isSelected
+                      ? '✓ Selected — you can now verify your ticket above'
+                      : `Recommended for ${itin.originName || fromText} → ${itin.destinationName || toText}. Click to select this bus.`}
                   </div>
                 </div>
               );
@@ -821,6 +815,8 @@ export default function PublicTransportHub({
         onClose={() => setShowBusOcrModal(false)}
         onTicketVerified={handleBusTicketVerified}
         currentRoute={selectedRoute}
+        fromText={fromText}
+        toText={toText}
       />
 
       {/* Metro Verification Modal */}
@@ -893,7 +889,7 @@ export default function PublicTransportHub({
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <QrCode size={20} className="text-blue-600" />
-                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800 }}>Join Friend's Journey</h3>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800 }}>Join Shared Bus Journey</h3>
               </div>
               <button
                 onClick={() => setShowJoinModal(false)}
@@ -904,14 +900,14 @@ export default function PublicTransportHub({
             </div>
 
             <p style={{ fontSize: '0.82rem', color: 'var(--slate-600)', marginBottom: '1rem' }}>
-              Paste or scan the Co-Traveller QR Code provided by the primary ticket holder to claim your passenger slot.
+              Enter the join code shared by the ticket holder to claim one remaining passenger slot. You can then start your own verified bus journey.
             </p>
 
             <input
               type="text"
               value={joinQrInput}
               onChange={(e) => setJoinQrInput(e.target.value)}
-              placeholder="Paste co-traveller QR payload or ticket ID..."
+              placeholder="Enter shared-ticket join code (e.g. BUS-ABC123)..."
               style={{
                 width: '100%',
                 padding: '0.65rem 0.85rem',

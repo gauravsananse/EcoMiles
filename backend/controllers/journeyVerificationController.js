@@ -38,9 +38,20 @@ exports.startJourney = async (req, res) => {
 
     const normMode = (plannedMode || 'WALK').toUpperCase();
     let startState = 'WALKING';
-    if (normMode === 'CYCLING') startState = 'CYCLING';
-    else if (normMode === 'EV') startState = 'EV_VERIFICATION_REQUIRED';
-    else if (['PUBLIC_TRANSPORT', 'BUS', 'METRO'].includes(normMode)) startState = 'PUBLIC_TRANSPORT_ROUTE_SELECTION';
+    let initialModeVal = 'WALKING';
+    if (normMode === 'CYCLING') {
+      startState = 'CYCLING';
+      initialModeVal = 'CYCLING';
+    } else if (normMode === 'EV') {
+      startState = 'EV_VERIFICATION_REQUIRED';
+      initialModeVal = 'EV';
+    } else if (['PUBLIC_TRANSPORT', 'BUS', 'METRO'].includes(normMode)) {
+      startState = 'PUBLIC_TRANSPORT_ROUTE_SELECTION';
+      initialModeVal = normMode;
+    } else if (normMode === 'WALK' || normMode === 'WALKING') {
+      startState = 'WALKING';
+      initialModeVal = 'WALKING';
+    }
 
     // Create journey record
     const journey = await Journey.create({
@@ -67,8 +78,8 @@ exports.startJourney = async (req, res) => {
         durationMinutes: plannedRoute.durationMinutes || (plannedRoute.durationSeconds ? Math.round(plannedRoute.durationSeconds / 60) : 0),
         steps: plannedRoute.steps || [],
       } : { polyline: '', distanceKm: 0, durationMinutes: 0, steps: [] },
-      currentMode: startState,
-      verifiedMode: startState,
+      currentMode: initialModeVal,
+      verifiedMode: initialModeVal,
       currentConfidence: 0.95,
       overallFraudScore: 0,
       isReplayData: Boolean(isReplayData),
@@ -93,7 +104,7 @@ exports.startJourney = async (req, res) => {
       segments: [
         {
           segmentIndex: 0,
-          mode: startState,
+          mode: initialModeVal === 'WALKING' ? 'WALK' : initialModeVal,
           selectedMode: normMode,
           status: 'ACTIVE',
           startTime: new Date(),
@@ -879,18 +890,21 @@ exports.endJourney = async (req, res) => {
     let releaseRes = { releasedCredits: 0, releasedPoints: 0 };
     if (!isSuspicious) {
       releaseRes = await rewardEngine.finalizeAndReleaseJourneyRewards(journey._id, journey.userId);
+      journey.totalGreenCredits = releaseRes.releasedCredits;
+      journey.totalFitnessPoints = releaseRes.releasedPoints;
+      journey.totalCombinedPoints = releaseRes.releasedCombinedPoints || (releaseRes.releasedCredits + releaseRes.releasedPoints);
+      journey.overallVerificationStatus = 'VERIFIED';
     } else {
       // Zero out credits for unverified journeys
       journey.totalGreenCredits = 0;
       journey.totalFitnessPoints = 0;
+      journey.totalCombinedPoints = 0;
+      journey.overallVerificationStatus = 'HELD';
+      await rewardEngine.finalizeAndReleaseJourneyRewards(journey._id, journey.userId);
     }
 
     const totals = rewardEngine.calculateJourneyTotals(journey);
-    journey.totalGreenCredits = isSuspicious ? 0 : totals.totalGreenCredits;
-    journey.totalFitnessPoints = isSuspicious ? 0 : totals.totalFitnessPoints;
-    journey.totalCombinedPoints = isSuspicious ? 0 : totals.totalCombinedPoints;
     journey.totalCO2Saved = totals.totalCO2Saved;
-    journey.overallVerificationStatus = isSuspicious ? 'HELD' : totals.overallVerificationStatus;
     journey.totalDurationMinutes = Number(Math.max(0.1, (now.getTime() - new Date(journey.startTime).getTime()) / 60000).toFixed(1));
 
     await journey.save();

@@ -226,6 +226,20 @@ const journeySchema = new mongoose.Schema({
     enum: ['WALK', 'WALKING', 'CYCLING', 'BUS', 'METRO', 'EV', 'PUBLIC_TRANSPORT', 'PETROL', 'DIESEL', 'CNG', 'CAR', 'SCOOTER', 'STATIONARY', 'UNKNOWN'],
     default: 'STATIONARY',
   },
+  transportMode: {
+    type: String,
+    enum: ['WALK', 'WALKING', 'CYCLING', 'BUS', 'METRO', 'EV', 'PUBLIC_TRANSPORT', 'PETROL', 'DIESEL', 'CNG', 'CAR', 'SCOOTER', 'STATIONARY', 'UNKNOWN'],
+  },
+  verificationStatus: {
+    type: String,
+    enum: ['PENDING', 'VERIFIED', 'PARTIALLY_VERIFIED', 'HELD', 'REJECTED', 'TRACKING', 'COMPLETED'],
+  },
+  distance: {
+    type: Number,
+  },
+  steps: {
+    type: Number,
+  },
   verifiedVehicleId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Vehicle',
@@ -295,6 +309,14 @@ const journeySchema = new mongoose.Schema({
     type: String,
     enum: ['PENDING', 'VERIFIED', 'PARTIALLY_VERIFIED', 'HELD', 'REJECTED'],
     default: 'PENDING',
+  },
+  rewardClaimed: {
+    type: Boolean,
+    default: false,
+    index: true,
+  },
+  rewardClaimedAt: {
+    type: Date,
   },
   activeSegmentIndex: {
     type: Number,

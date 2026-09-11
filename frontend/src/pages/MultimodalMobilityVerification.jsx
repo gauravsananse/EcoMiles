@@ -34,7 +34,8 @@ import {
   Flag,
   AlertTriangle,
   Layers,
-  Award
+  Award,
+  Ticket as TicketIcon
 } from 'lucide-react';
 import MobilityMap from '../components/MobilityMap';
 import SensorEvidencePanel from '../components/SensorEvidencePanel';
@@ -46,6 +47,7 @@ import BluetoothScannerModal from '../components/BluetoothScannerModal';
 import VehicleVerificationModal from '../components/VehicleVerificationModal';
 import DeveloperTestModeBar from '../components/DeveloperTestModeBar';
 import PublicTransportHub from '../components/PublicTransportHub';
+import BusTicketOCRModal from '../components/BusTicketOCRModal';
 import SegmentTransitionModal from '../components/SegmentTransitionModal';
 import FinalJourneySummaryModal from '../components/FinalJourneySummaryModal';
 import VerificationDebugPanel from '../components/VerificationDebugPanel';
@@ -136,6 +138,8 @@ export default function MultimodalMobilityVerification({
   const [activeSegmentIndex, setActiveSegmentIndex] = useState(0);
   const [selectedUserMode, setSelectedUserMode] = useState(selectedRoute?.mode || 'WALK');
   const [showPublicTransportHub, setShowPublicTransportHub] = useState(false);
+  const [attachedBusTicket, setAttachedBusTicket] = useState(null);
+  const [showBusTicketModal, setShowBusTicketModal] = useState(false);
   const [showModeSelector, setShowModeSelector] = useState(false);
   const [completedSegmentData, setCompletedSegmentData] = useState(null);
   const [showSegmentTransitionModal, setShowSegmentTransitionModal] = useState(false);
@@ -571,7 +575,7 @@ export default function MultimodalMobilityVerification({
     setCurrentMode(chosenMode);
 
     // Proceed directly to mode-specific flow on any device (mobile, tablet, desktop)
-    if (chosenMode === 'PUBLIC_TRANSPORT') {
+    if (chosenMode === 'PUBLIC_TRANSPORT' || chosenMode === 'BUS' || chosenMode === 'METRO') {
       setShowPublicTransportHub(true);
       return;
     }
@@ -684,6 +688,10 @@ export default function MultimodalMobilityVerification({
       const initialReading = sensorManager.getCurrentReading();
       const activeTargetId = presetJourneyId || journeyId;
 
+      if (routeInfo?.verifiedTicket) {
+        setAttachedBusTicket(routeInfo.verifiedTicket);
+      }
+
       if (!activeTargetId) {
         const res = await api.startMultimodalJourney({
           isReplayData: isTestMode,
@@ -704,6 +712,13 @@ export default function MultimodalMobilityVerification({
           setActiveSegmentIndex(0);
           setSegments(res.journey.segments || []);
           journeyStateMachine.startJourney(res.journeyId, initialMode, res.registeredVehicle || registeredVehicle);
+          if (routeInfo?.verifiedTicket?._id) {
+            api.linkTicketToJourney(res.journeyId, {
+              ticketId: routeInfo.verifiedTicket._id,
+              ticketNumber: routeInfo.verifiedTicket.ticketNumber,
+              operator: routeInfo.verifiedTicket.operator,
+            }).catch(() => {});
+          }
         } else {
           throw new Error(res.error || 'Failed to start journey on server.');
         }
@@ -789,9 +804,20 @@ export default function MultimodalMobilityVerification({
     setCurrentMode(nextMode);
     stepCountingEngine.setTransportMode(nextMode, 0.95);
 
-    if (nextMode === 'PUBLIC_TRANSPORT' && !routeInfo) {
+    if ((nextMode === 'PUBLIC_TRANSPORT' || nextMode === 'BUS' || nextMode === 'METRO') && !routeInfo) {
       setShowPublicTransportHub(true);
       return;
+    }
+
+    if (routeInfo?.verifiedTicket) {
+      setAttachedBusTicket(routeInfo.verifiedTicket);
+      if (journeyId && routeInfo.verifiedTicket._id) {
+        api.linkTicketToJourney(journeyId, {
+          ticketId: routeInfo.verifiedTicket._id,
+          ticketNumber: routeInfo.verifiedTicket.ticketNumber,
+          operator: routeInfo.verifiedTicket.operator,
+        }).catch(() => {});
+      }
     }
 
     try {
@@ -1399,10 +1425,10 @@ export default function MultimodalMobilityVerification({
                 </span>
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--slate-600)', marginTop: '3px' }}>
-                {selectedUserMode === 'WALK' && 'Step counter active &bull; +15 Fitness Points/km &bull; +10 Green Credits/km'}
-                {selectedUserMode === 'CYCLING' && 'Pedal cadence kinematics active &bull; +10 Fitness Points/km &bull; +12 Green Credits/km'}
-                {selectedUserMode === 'EV' && 'Web Bluetooth GATT required &bull; Fossil-fuel lockout &bull; +5 Green Credits/km'}
-                {selectedUserMode === 'PUBLIC_TRANSPORT' && 'Corridor & Stop tracking &bull; +6–8 Green Credits/km (Bus / Metro)'}
+                {selectedUserMode === 'WALK' && 'Step counter active • +10 FP per 1,000 steps • +5 GC/km (Max 100 FP & 50 GC/day)'}
+                {selectedUserMode === 'CYCLING' && 'Pedal cadence kinematics active • +10 FP/km • +8 GC/km (Max 100 FP & 80 GC/day)'}
+                {selectedUserMode === 'EV' && 'Web Bluetooth GATT required • Fossil-fuel lockout • +3 GC/km (Max 30 GC/day)'}
+                {selectedUserMode === 'PUBLIC_TRANSPORT' && 'Corridor & Stop tracking • +5 GC/km (Max 50 GC/day)'}
               </div>
             </div>
 
@@ -1461,8 +1487,12 @@ export default function MultimodalMobilityVerification({
           journeyId={journeyId}
           currentLocation={{ lat: liveSensorData.latitude || 18.5284, lng: liveSensorData.longitude || 73.8744 }}
           isTestMode={isTestMode}
+          initialMode={selectedUserMode === 'METRO' ? 'METRO' : 'BUS'}
           onBack={() => setShowPublicTransportHub(false)}
           onSegmentStarted={(segmentIdx, selectedRouteObj) => {
+            if (selectedRouteObj?.verifiedTicket) {
+              setAttachedBusTicket(selectedRouteObj.verifiedTicket);
+            }
             if (!journeyId) {
               startActiveTrackingSession(null, 'PUBLIC_TRANSPORT', selectedRouteObj);
             } else {
@@ -1536,7 +1566,7 @@ export default function MultimodalMobilityVerification({
                 </span>
               )}
 
-              {journeyStateData.status === 'PUBLIC_TRANSPORT_VERIFIED' && (
+              {(journeyStateData.status === 'PUBLIC_TRANSPORT_VERIFIED' || attachedBusTicket) && (
                 <span style={{
                   background: '#eff6ff',
                   color: '#1d4ed8',
@@ -1550,8 +1580,32 @@ export default function MultimodalMobilityVerification({
                   gap: '4px',
                 }}>
                   <Bus size={14} className="text-blue-600" />
-                  <span>Bus Verified ✓</span>
+                  <span>Bus Verified {attachedBusTicket ? `(#${attachedBusTicket.ticketNumber})` : ''} ✓</span>
                 </span>
+              )}
+
+              {(currentMode === 'PUBLIC_TRANSPORT' || currentMode === 'BUS') && !attachedBusTicket && (
+                <button
+                  type="button"
+                  onClick={() => setShowBusTicketModal(true)}
+                  className="btn"
+                  style={{
+                    fontSize: '0.78rem',
+                    padding: '4px 10px',
+                    background: '#eff6ff',
+                    color: '#1d4ed8',
+                    border: '1.5px solid #93c5fd',
+                    borderRadius: '9999px',
+                    fontWeight: 800,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <TicketIcon size={14} className="text-blue-600" />
+                  <span>Verify Bus Ticket</span>
+                </button>
               )}
 
               {isWalkingVerified ? (
@@ -2100,6 +2154,29 @@ export default function MultimodalMobilityVerification({
           </div>
         </div>
       )}
+
+      {/* Bus Ticket OCR Verification Modal */}
+      <BusTicketOCRModal
+        isOpen={showBusTicketModal}
+        onClose={() => setShowBusTicketModal(false)}
+        currentRoute={activePlannedRoute}
+        onTicketVerified={async (res) => {
+          if (res?.ticket) {
+            setAttachedBusTicket(res.ticket);
+            if (journeyId) {
+              try {
+                await api.linkTicketToJourney(journeyId, {
+                  ticketId: res.ticket._id || `BTK-${Date.now()}`,
+                  ticketNumber: res.ticket.ticketNumber,
+                  operator: res.ticket.operator || 'PMPML',
+                  passengerSlot: 0,
+                  coTravellers: [],
+                });
+              } catch (_) {}
+            }
+          }
+        }}
+      />
     </div>
   );
 }

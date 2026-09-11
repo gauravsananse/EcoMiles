@@ -169,7 +169,9 @@ export default function PlaceAutocompleteInput({
   const inputRef = useRef(null);
   const sessionTokenRef = useRef(`session_${Date.now()}`);
   const debounceTimerRef = useRef(null);
-  const abortRef = useRef(null);
+  // A response for an earlier keystroke must never replace newer suggestions.
+  // (For example, when "shiv" finishes after the user has typed "shivaji".)
+  const searchSequenceRef = useRef(0);
 
   // Sync when value prop changes externally
   useEffect(() => {
@@ -193,8 +195,6 @@ export default function PlaceAutocompleteInput({
 
   // ── Search engine ──────────────────────────────────────────────────────────
   const runSearch = async (text) => {
-    if (abortRef.current) abortRef.current.abort();
-
     const trimmed = text.trim();
     if (!trimmed) {
       setSuggestions([]);
@@ -202,18 +202,34 @@ export default function PlaceAutocompleteInput({
       return;
     }
 
+    const searchSequence = ++searchSequenceRef.current;
     setIsLoading(true);
 
     try {
-      // Try backend first (it may have Google Maps key)
+      // The server uses Google Places when configured and falls back to OSM.
+      // The browser search is a second independent fallback, so a temporarily
+      // unavailable API server cannot make the input look broken.
       let backendResults = [];
       try {
-        const res = await api.autocompletePlaces(trimmed, sessionTokenRef.current);
-        if (res && res.success && Array.isArray(res.predictions) && res.predictions.length > 0) {
-          backendResults = res.predictions;
+        const backendResponse = await api.autocompletePlaces(trimmed, sessionTokenRef.current);
+        if (backendResponse?.success && Array.isArray(backendResponse.predictions)) {
+          backendResults = backendResponse.predictions;
         }
       } catch (_) {
-        // Backend unreachable — fall through to direct search
+        // The direct geocoder below remains available if the API server is down.
+      }
+
+      if (searchSequence !== searchSequenceRef.current) return;
+
+      // Do not wait on duplicate external searches when the server already
+      // returned matches. This keeps the type-ahead as responsive as Maps.
+      let directResults = [];
+      if (backendResults.length === 0) {
+        try {
+          directResults = await directGeocoderSearch(trimmed);
+        } catch (_) {
+          // An empty list lets the normal no-results state explain the outcome.
+        }
       }
 
       // Priority transit query based on transitModeBias
@@ -237,6 +253,8 @@ export default function PlaceAutocompleteInput({
         } catch (_) {}
       }
 
+      if (searchSequence !== searchSequenceRef.current) return;
+
       // Merge: priority transit first, backend next, then direct results
       let merged = [...priorityTransitResults, ...backendResults];
       const seenCoords = new Set(
@@ -254,7 +272,7 @@ export default function PlaceAutocompleteInput({
         }
       }
 
-      setSuggestions(merged.slice(0, 6)); // 3-6 top relevant suggestions for compact mobile UX
+      setSuggestions(merged.slice(0, 8)); // Enough nearby matches to make refinement easy.
       setIsOpen(true);
     } catch (err) {
       if (err.name !== 'AbortError') {
@@ -262,7 +280,7 @@ export default function PlaceAutocompleteInput({
         setSuggestions([]);
       }
     } finally {
-      setIsLoading(false);
+      if (searchSequence === searchSequenceRef.current) setIsLoading(false);
     }
   };
 

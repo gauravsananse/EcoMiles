@@ -76,11 +76,20 @@ exports.getUpcomingArrivals = async (req, res) => {
  */
 exports.searchRoutes = async (req, res) => {
   try {
-    const { origin = 'Current Location', destination = 'Hinjewadi Phase 1', lat, lng } = req.query;
+    const { origin = 'Current Location', destination = 'Hinjewadi Phase 1', lat, lng, originLat, originLng, destinationLat, destinationLng } = req.query;
     const userLat = Number(lat) || 18.5284;
     const userLng = Number(lng) || 73.8744;
 
-    const itineraries = await transitService.searchRoutes(origin, destination, userLat, userLng);
+    const itineraries = await transitService.searchRoutes(
+      origin,
+      destination,
+      userLat,
+      userLng,
+      originLat,
+      originLng,
+      destinationLat,
+      destinationLng
+    );
     return res.status(200).json({ success: true, count: itineraries.length, itineraries });
   } catch (error) {
     console.error('[TransitController.searchRoutes] Error:', error.message);

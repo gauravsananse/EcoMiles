@@ -271,6 +271,10 @@ export const api = {
     return request('/rewards/my-redemptions', { method: 'GET' });
   },
 
+  getRewardHistory: async () => {
+    return request('/rewards/history', { method: 'GET' });
+  },
+
   trackPartnerClick: async (clickData) => {
     try {
       return await request('/rewards/track-click', {
@@ -404,9 +408,11 @@ export const api = {
   },
 
   // Transit — Search Routes
-  searchTransitRoutes: async (origin, destination, lat, lng) => {
+  searchTransitRoutes: async (origin, destination, lat, lng, originPlace, destinationPlace) => {
     let q = `?origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(destination)}`;
     if (lat && lng) q += `&lat=${lat}&lng=${lng}`;
+    if (originPlace?.latitude && originPlace?.longitude) q += `&originLat=${originPlace.latitude}&originLng=${originPlace.longitude}`;
+    if (destinationPlace?.latitude && destinationPlace?.longitude) q += `&destinationLat=${destinationPlace.latitude}&destinationLng=${destinationPlace.longitude}`;
     return request(`/transit/routes/search${q}`, { method: 'GET' });
   },
 
@@ -541,10 +547,45 @@ export const api = {
   },
 
   // Bus Ticket OCR & Anti-Replay Validation
-  validateBusTicketOCR: async (payload) => {
+  validateBusTicketOCR: async (rawTextOrPayload, parsedData = null, options = {}) => {
+    let bodyPayload = {};
+    if (typeof rawTextOrPayload === 'object' && rawTextOrPayload !== null) {
+      bodyPayload = rawTextOrPayload;
+    } else {
+      bodyPayload = {
+        rawText: rawTextOrPayload,
+        parsedData: parsedData || {},
+        passengerCount: parsedData?.passengerCount || 1,
+        selectedRoute: options.selectedRoute || (parsedData ? { name: parsedData.route, routeId: parsedData.route } : null),
+        originName: options.originName || parsedData?.routeOrigin || 'Katraj',
+        destName: options.destName || parsedData?.routeDestination || 'Bitwise Tower',
+      };
+    }
+
     return request('/metro/bus/verify-ticket', {
       method: 'POST',
-      body: JSON.stringify(payload),
+      body: JSON.stringify(bodyPayload),
+    });
+  },
+
+  linkTicketToJourney: async (journeyId, payload) => {
+    return request('/metro/link-ticket', {
+      method: 'POST',
+      body: JSON.stringify({ journeyId, ...payload }),
+    });
+  },
+
+  joinSharedBusTicket: async (joinCode) => {
+    return request('/metro/bus/join', {
+      method: 'POST',
+      body: JSON.stringify({ joinCode }),
+    });
+  },
+
+  joinJourneyViaQR: async (journeyId, qrPayload) => {
+    return request('/metro/verify-ticket', {
+      method: 'POST',
+      body: JSON.stringify({ qrData: qrPayload, journeyId }),
     });
   },
 };

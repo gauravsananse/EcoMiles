@@ -46,6 +46,29 @@ const metroTicketSchema = new mongoose.Schema({
     type: Number,
     default: 20,
   },
+  // A single purchased ticket can be shared only with the number of passengers
+  // printed on that ticket. The purchaser consumes the first slot.
+  passengerCapacity: {
+    type: Number,
+    default: 1,
+    min: 1,
+    max: 10,
+  },
+  passengerSlotsUsed: {
+    type: Number,
+    default: 1,
+    min: 1,
+  },
+  joinCode: {
+    type: String,
+    unique: true,
+    sparse: true,
+    index: true,
+  },
+  joinedPassengerUserIds: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  }],
   issuedAt: {
     type: Date,
     required: true,

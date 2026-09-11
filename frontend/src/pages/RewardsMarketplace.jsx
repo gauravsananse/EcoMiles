@@ -25,20 +25,22 @@ import {
 import { api } from '../services/api';
 import { useTranslation } from '../i18n/I18nContext';
 
-// Comprehensive 8-Partner Initial / Fallback Catalog with exact real partner destinations
+// Exact User-Required Redemption Structure:
+// Fitness Points: 500 FP -> ₹50, 1,000 FP -> ₹100, 2,500 FP -> ₹250, 5,000 FP -> ₹500
+// Green Credits: 500 GC -> ₹50, 1,000 GC -> ₹100, 2,500 GC -> ₹250, 5,000 GC -> ₹500
 const DEFAULT_REWARDS = [
-  // 1. Fast&Up (Fitness / Nutrition)
+  // 1. Fast&Up (Fitness / 500 FP -> ₹50 voucher)
   {
     _id: 'reward-fastandup-01',
     title: 'Fast&Up Plant Protein & Hydration Electrolytes',
     category: 'FITNESS',
     subcategory: 'Nutrition',
     partner: 'Fast&Up',
-    discountValue: 'Flat ₹300 OFF',
-    pointsRequired: 50,
+    discountValue: 'Flat ₹50 OFF',
+    pointsRequired: 500,
     pointsType: 'FITNESS_POINTS',
     description: 'Premium vegan protein powders and effervescent daily electrolytes.',
-    voucherCode: 'GREENFAST300',
+    voucherCode: 'GREENFAST50',
     partnerUrl: 'https://in.fastandup.com/',
     buttonText: 'Shop at Fast&Up',
     badgeText: 'Nutrition',
@@ -46,18 +48,18 @@ const DEFAULT_REWARDS = [
     expiryDate: '30 Sep 2026',
     isActive: true,
   },
-  // 2. Decathlon (Fitness / Sports & Cycling)
+  // 2. Decathlon (Fitness / 1,000 FP -> ₹100 voucher)
   {
     _id: 'reward-decathlon-02',
     title: 'Decathlon Sportswear & Cycling Accessories',
     category: 'FITNESS',
     subcategory: 'Sports & Cycling',
     partner: 'Decathlon',
-    discountValue: '25% OFF',
-    pointsRequired: 60,
+    discountValue: '₹100 OFF',
+    pointsRequired: 1000,
     pointsType: 'FITNESS_POINTS',
-    description: 'Get flat 25% off on activewear, running shoes, and cycling helmets.',
-    voucherCode: 'GREENDECATH25',
+    description: 'Get flat ₹100 off on activewear, running shoes, and cycling helmets.',
+    voucherCode: 'GREENDECATH100',
     partnerUrl: 'https://www.decathlon.in/',
     buttonText: 'Shop at Decathlon',
     badgeText: 'Sports & Cycling',
@@ -65,18 +67,18 @@ const DEFAULT_REWARDS = [
     expiryDate: '30 Sep 2026',
     isActive: true,
   },
-  // 3. Cult.fit (Fitness / Gym Pass)
+  // 3. Cult.fit (Fitness / 2,500 FP -> ₹250 voucher)
   {
     _id: 'reward-cultfit-03',
     title: 'Cult.fit 1-Month All-Access Gym Pass',
     category: 'FITNESS',
     subcategory: 'Fitness Perks',
     partner: 'cult.fit',
-    discountValue: '₹750 OFF',
-    pointsRequired: 80,
+    discountValue: '₹250 OFF',
+    pointsRequired: 2500,
     pointsType: 'FITNESS_POINTS',
     description: 'Valid across 300+ Cult centers for strength, cardio, and yoga sessions.',
-    voucherCode: 'GREENCULT750',
+    voucherCode: 'GREENCULT250',
     partnerUrl: 'https://www.cult.fit/',
     buttonText: 'Get Cult.fit Pass',
     badgeText: 'Fitness Perks',
@@ -84,18 +86,18 @@ const DEFAULT_REWARDS = [
     expiryDate: '30 Sep 2026',
     isActive: true,
   },
-  // 4. Amazon India (Fitness / Shopping)
+  // 4. Amazon India (Fitness / 5,000 FP -> ₹500 voucher)
   {
     _id: 'reward-amazon-04',
     title: 'Amazon India – Eco & Fitness Essentials',
     category: 'FITNESS',
     subcategory: 'Fitness Perks',
     partner: 'Amazon India',
-    discountValue: '₹200 Amazon Gift Voucher',
-    pointsRequired: 70,
+    discountValue: '₹500 Amazon Gift Voucher',
+    pointsRequired: 5000,
     pointsType: 'FITNESS_POINTS',
     description: 'Redeem for sports gear, gym accessories, yoga mats, and organic fitness foods.',
-    voucherCode: 'GREENAMAZON200',
+    voucherCode: 'GREENAMAZON500',
     partnerUrl: 'https://www.amazon.in/',
     buttonText: 'Shop on Amazon',
     badgeText: 'Shopping Partner',
@@ -103,56 +105,18 @@ const DEFAULT_REWARDS = [
     expiryDate: '30 Sep 2026',
     isActive: true,
   },
-  // 5. Myntra (Green / Sustainable Fashion)
-  {
-    _id: 'reward-myntra-05',
-    title: 'Myntra Sustainable Cotton & Eco-Apparel',
-    category: 'GREEN',
-    subcategory: 'Sustainable Fashion',
-    partner: 'Myntra',
-    discountValue: '₹500 OFF',
-    pointsRequired: 75,
-    pointsType: 'GREEN_CREDITS',
-    description: 'Organic certified cotton apparel and recycled fiber sustainable clothing.',
-    voucherCode: 'GREENMYNTRA500',
-    partnerUrl: 'https://www.myntra.com/',
-    buttonText: 'Shop at Myntra',
-    badgeText: 'Sustainable Fashion',
-    iconType: 'fashion',
-    expiryDate: '30 Sep 2026',
-    isActive: true,
-  },
-  // 6. SankalpTaru (Green / Climate Action)
-  {
-    _id: 'reward-sankalp-06',
-    title: 'SankalpTaru – Plant a Tree in Your Name with Geo-Tag',
-    category: 'GREEN',
-    subcategory: 'Climate Action',
-    partner: 'SankalpTaru Foundation',
-    discountValue: '1 Free Geo-Tagged Tree',
-    pointsRequired: 90,
-    pointsType: 'GREEN_CREDITS',
-    description: 'Sponsor a live fruit-bearing tree planted in rural India with GPS tracking and certificate.',
-    voucherCode: 'GREENSANKALP',
-    partnerUrl: 'https://sankalptaru.org/',
-    buttonText: 'Plant My Tree',
-    badgeText: 'Climate Action',
-    iconType: 'plant',
-    expiryDate: '30 Sep 2026',
-    isActive: true,
-  },
-  // 7. BECO (Green / Eco Products)
+  // 5. BECO (Green / 500 GC -> ₹50 voucher)
   {
     _id: 'reward-beco-07',
     title: 'Beco 100% Bamboo Eco-Stationery & Living Kit',
     category: 'GREEN',
     subcategory: 'Eco Products',
     partner: 'BECO',
-    discountValue: '40% OFF',
-    pointsRequired: 50,
+    discountValue: '₹50 OFF',
+    pointsRequired: 500,
     pointsType: 'GREEN_CREDITS',
     description: 'Zero-plastic bamboo home essentials, eco-stationery, and reusable living kits.',
-    voucherCode: 'GREENBECO40',
+    voucherCode: 'GREENBECO50',
     partnerUrl: 'https://www.letsbeco.com/',
     buttonText: 'Shop at BECO',
     badgeText: 'Eco Products',
@@ -160,22 +124,60 @@ const DEFAULT_REWARDS = [
     expiryDate: '30 Sep 2026',
     isActive: true,
   },
-  // 8. Flipkart (Green / Eco Products)
+  // 6. Flipkart (Green / 1,000 GC -> ₹100 voucher)
   {
     _id: 'reward-flipkart-08',
     title: 'Flipkart Sports, Fitness & Eco-Living Store',
     category: 'GREEN',
     subcategory: 'Eco Products',
     partner: 'Flipkart',
-    discountValue: '₹150 OFF Voucher',
-    pointsRequired: 50,
+    discountValue: '₹100 OFF Voucher',
+    pointsRequired: 1000,
     pointsType: 'GREEN_CREDITS',
     description: 'Redeem across Sports & Fitness, Food & Health, and eco-friendly household goods.',
-    voucherCode: 'GREENFLIP150',
+    voucherCode: 'GREENFLIP100',
     partnerUrl: 'https://www.flipkart.com/',
     buttonText: 'Shop on Flipkart',
     badgeText: 'Eco Retail',
     iconType: 'shopping',
+    expiryDate: '30 Sep 2026',
+    isActive: true,
+  },
+  // 7. Myntra (Green / 2,500 GC -> ₹250 voucher)
+  {
+    _id: 'reward-myntra-05',
+    title: 'Myntra Sustainable Cotton & Eco-Apparel',
+    category: 'GREEN',
+    subcategory: 'Sustainable Fashion',
+    partner: 'Myntra',
+    discountValue: '₹250 OFF',
+    pointsRequired: 2500,
+    pointsType: 'GREEN_CREDITS',
+    description: 'Organic certified cotton apparel and recycled fiber sustainable clothing.',
+    voucherCode: 'GREENMYNTRA250',
+    partnerUrl: 'https://www.myntra.com/',
+    buttonText: 'Shop at Myntra',
+    badgeText: 'Sustainable Fashion',
+    iconType: 'fashion',
+    expiryDate: '30 Sep 2026',
+    isActive: true,
+  },
+  // 8. SankalpTaru (Green / 5,000 GC -> ₹500 voucher)
+  {
+    _id: 'reward-sankalp-06',
+    title: 'SankalpTaru – Plant a Tree in Your Name with Geo-Tag',
+    category: 'GREEN',
+    subcategory: 'Climate Action',
+    partner: 'SankalpTaru Foundation',
+    discountValue: '₹500 Tree Plantation Voucher',
+    pointsRequired: 5000,
+    pointsType: 'GREEN_CREDITS',
+    description: 'Sponsor a live fruit-bearing tree planted in rural India with GPS tracking and certificate.',
+    voucherCode: 'GREENSANKALP500',
+    partnerUrl: 'https://sankalptaru.org/',
+    buttonText: 'Plant My Tree',
+    badgeText: 'Climate Action',
+    iconType: 'plant',
     expiryDate: '30 Sep 2026',
     isActive: true,
   },
@@ -186,8 +188,10 @@ export default function RewardsMarketplace({ user, onUserUpdate, onOpenAuth }) {
   const [activeCategory, setActiveCategory] = useState('ALL'); // 'ALL' | 'FITNESS' | 'GREEN' | 'MY_VOUCHERS'
   const [rewards, setRewards] = useState(DEFAULT_REWARDS);
   const [myRedemptions, setMyRedemptions] = useState([]);
+  const [rewardHistory, setRewardHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingRedemptions, setIsLoadingRedemptions] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [copiedCode, setCopiedCode] = useState(null);
 
   // Active Voucher Modal State
@@ -199,18 +203,21 @@ export default function RewardsMarketplace({ user, onUserUpdate, onOpenAuth }) {
   // Quick success toast
   const [successToast, setSuccessToast] = useState(null);
 
-  // Load redemptions from localStorage / API on mount
+  // Load redemptions & history from localStorage / API on mount
   useEffect(() => {
     loadLocalRedemptions();
     loadRewards();
     if (user) {
       loadMyRedemptions();
+      loadRewardHistory();
     }
   }, [user]);
 
   useEffect(() => {
     if (activeCategory === 'MY_VOUCHERS') {
       loadMyRedemptions();
+    } else if (activeCategory === 'HISTORY') {
+      loadRewardHistory();
     } else {
       loadRewards();
     }
@@ -277,6 +284,21 @@ export default function RewardsMarketplace({ user, onUserUpdate, onOpenAuth }) {
       loadLocalRedemptions();
     } finally {
       setIsLoadingRedemptions(false);
+    }
+  };
+
+  const loadRewardHistory = async () => {
+    if (!user) return;
+    setIsLoadingHistory(true);
+    try {
+      const res = await api.getRewardHistory();
+      if (res && res.success && res.history) {
+        setRewardHistory(res.history);
+      }
+    } catch (err) {
+      console.warn('Failed to load reward history:', err.message);
+    } finally {
+      setIsLoadingHistory(false);
     }
   };
 
@@ -531,6 +553,7 @@ export default function RewardsMarketplace({ user, onUserUpdate, onOpenAuth }) {
           { id: 'FITNESS', label: `🔥 ${t('rewards.fitnessPerks')}` },
           { id: 'GREEN', label: `🌱 ${t('rewards.sustainablePerks')}` },
           { id: 'MY_VOUCHERS', label: `🎟️ ${t('rewards.unlockedVoucher')} (${myRedemptions.length})` },
+          { id: 'HISTORY', label: `📜 Reward History (${rewardHistory.length})` },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -678,6 +701,124 @@ export default function RewardsMarketplace({ user, onUserUpdate, onOpenAuth }) {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      ) : activeCategory === 'HISTORY' ? (
+        /* VIEW: Reward History */
+        <div style={{ maxWidth: '850px', margin: '0 auto' }}>
+          {!user ? (
+            <div className="card" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
+              <Lock size={36} className="text-slate-400" style={{ margin: '0 auto 0.75rem' }} />
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--slate-900)' }}>Sign in to View Reward History</h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--slate-500)', marginBottom: '1.25rem' }}>
+                Log in to see all verified journeys and rewards credited to your account.
+              </p>
+              <button onClick={() => onOpenAuth('login')} className="btn btn-primary">
+                Sign In
+              </button>
+            </div>
+          ) : isLoadingHistory ? (
+            <div className="card" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
+              <Clock size={36} className="text-slate-400" style={{ margin: '0 auto 0.75rem', animation: 'spin 1s linear infinite' }} />
+              <p style={{ fontSize: '0.9rem', color: 'var(--slate-500)' }}>Loading your reward ledger...</p>
+            </div>
+          ) : rewardHistory.length === 0 ? (
+            <div className="card" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
+              <Award size={40} className="text-emerald-600" style={{ margin: '0 auto 0.75rem', opacity: 0.7 }} />
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--slate-900)' }}>No Verified Rewards Yet</h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--slate-500)', marginBottom: '1.25rem' }}>
+                Complete and verify journeys using Walking, Cycling, Public Transport, or EV to earn Fitness Points and Green Credits.
+              </p>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {rewardHistory.map((item) => {
+                const modeName = item.transportMode || item.mode || 'Eco Trip';
+                const dist = item.verifiedDistance ?? item.distanceKm ?? 0;
+                const steps = item.verifiedSteps ?? 0;
+                const fp = item.fitnessPoints ?? item.points ?? 0;
+                const gc = item.greenCredits ?? item.points ?? 0;
+                const isVerified = (item.verificationStatus || item.status) === 'RELEASED' || (item.verificationStatus || item.status) === 'VERIFIED';
+                const dateStr = item.timestamp ? new Date(item.timestamp).toLocaleString() : new Date(item.createdAt).toLocaleString();
+
+                return (
+                  <div key={item._id} className="card" style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '1rem 1.25rem',
+                    borderLeft: isVerified ? '4px solid #059669' : '4px solid #f59e0b',
+                    gap: '1rem',
+                    flexWrap: 'wrap'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{
+                        width: '42px',
+                        height: '42px',
+                        borderRadius: '10px',
+                        background: '#ecfdf5',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#059669',
+                        fontWeight: 800
+                      }}>
+                        {modeName.substring(0, 2).toUpperCase()}
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontWeight: 800, color: 'var(--slate-900)', fontSize: '0.95rem' }}>
+                            {modeName} Journey
+                          </span>
+                          <span style={{
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                            padding: '1px 7px',
+                            borderRadius: '9999px',
+                            background: isVerified ? '#ecfdf5' : '#fef3c7',
+                            color: isVerified ? '#047857' : '#b45309',
+                          }}>
+                            {isVerified ? 'VERIFIED' : (item.verificationStatus || item.status || 'PENDING')}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--slate-500)', marginTop: '2px' }}>
+                          {dist > 0 ? `${dist.toFixed(2)} km` : ''}
+                          {dist > 0 && steps > 0 ? ' • ' : ''}
+                          {steps > 0 ? `${steps.toLocaleString()} steps` : ''}
+                          {` • ${dateStr}`}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                      {fp > 0 && (
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--slate-500)', fontWeight: 600 }}>Fitness Points</div>
+                          <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#ea580c', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <Flame size={14} />
+                            <span>+{fp} FP</span>
+                          </div>
+                        </div>
+                      )}
+                      {gc > 0 && (
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--slate-500)', fontWeight: 600 }}>Green Credits</div>
+                          <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#059669', display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <Leaf size={14} />
+                            <span>+{gc} GC</span>
+                          </div>
+                        </div>
+                      )}
+                      {fp === 0 && gc === 0 && (
+                        <span style={{ fontSize: '0.8rem', color: 'var(--slate-400)', fontStyle: 'italic' }}>
+                          Daily limit reached (0 pts)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

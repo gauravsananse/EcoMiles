@@ -1,6 +1,7 @@
 const Journey = require('../models/Journey');
 const User = require('../models/User');
 const aiModeDetectionService = require('../services/aiModeDetectionService');
+const rewardEngine = require('../services/rewardEngine');
 
 // @desc    Record and verify a completed journey
 // @route   POST /api/journeys/record
@@ -17,6 +18,7 @@ exports.recordJourney = async (req, res) => {
       cadenceStepsPerMin,
       accelerationVariance,
       routeWaypoints,
+      verifiedWalkingSteps,
     } = req.body;
 
     const dist = Number(distanceKm) || 3.2;
@@ -33,10 +35,10 @@ exports.recordJourney = async (req, res) => {
       stopsCount: routeWaypoints?.length > 4 ? 2 : 0,
     });
 
-    // 2. Dual Points & CO2 Avoided Calculation
-    const impact = aiModeDetectionService.calculateImpact(classification.mode, dist, dur);
+    const isVerified = Boolean(classification.isVerified);
+    const steps = Number(verifiedWalkingSteps) || (classification.mode === 'WALKING' ? Math.round(Number(cadenceStepsPerMin || 110) * dur) : 0);
 
-    // 3. Save Journey Record
+    // 2. Save Journey Record
     const journey = await Journey.create({
       userId: req.user._id,
       mode: classification.mode,
@@ -46,36 +48,50 @@ exports.recordJourney = async (req, res) => {
       durationMinutes: dur,
       averageSpeedKmh: Number(speed.toFixed(1)),
       maxSpeedKmh: Number(maxSpeed.toFixed(1)),
-      caloriesBurned: impact.caloriesBurned,
-      fitnessPointsEarned: impact.fitnessPoints,
-      greenCreditsEarned: impact.greenCredits,
-      co2AvoidedKg: impact.co2AvoidedKg,
-      verificationStatus: classification.isVerified ? 'VERIFIED' : 'PENDING',
+      caloriesBurned: Math.round(dur * 3.5),
+      fitnessPointsEarned: 0,
+      greenCreditsEarned: 0,
+      co2AvoidedKg: 0,
+      verificationStatus: isVerified ? 'VERIFIED' : 'PENDING',
+      overallVerificationStatus: isVerified ? 'VERIFIED' : 'PENDING',
       confidenceScore: classification.confidence,
       detectionReasoning: classification.reasoning,
       routeWaypoints: routeWaypoints || [],
     });
 
-    // 4. Update User Balances
-    const user = await User.findById(req.user._id);
-    if (user) {
-      user.fitnessPoints = (user.fitnessPoints || 0) + impact.fitnessPoints;
-      user.greenCredits = (user.greenCredits || 0) + impact.greenCredits;
-      user.totalCo2SavedKg = Number(((user.totalCo2SavedKg || 0) + impact.co2AvoidedKg).toFixed(2));
-      user.totalDistanceKm = Number(((user.totalDistanceKm || 0) + dist).toFixed(1));
-      user.totalActiveMinutes = (user.totalActiveMinutes || 0) + dur;
-      await user.save();
+    // 3. Award Authoritative Rewards via centralized Reward Engine
+    let rewardResult = { rewardedFP: 0, rewardedGC: 0, co2AvoidedKg: 0 };
+    if (isVerified) {
+      rewardResult = await rewardEngine.awardDirectJourneyReward({
+        journeyId: journey._id,
+        userId: req.user._id,
+        mode: classification.mode,
+        distanceKm: dist,
+        durationMinutes: dur,
+        verifiedSteps: steps,
+        isVerified: true,
+        confidence: classification.confidence,
+      });
+
+      journey.fitnessPointsEarned = rewardResult.rewardedFP;
+      journey.greenCreditsEarned = rewardResult.rewardedGC;
+      journey.co2AvoidedKg = rewardResult.co2AvoidedKg;
+      await journey.save();
     }
+
+    const updatedUser = await User.findById(req.user._id);
 
     return res.status(201).json({
       success: true,
-      message: 'Journey successfully verified by AI engine and points credited!',
+      message: isVerified
+        ? 'Journey successfully verified by AI engine and points credited!'
+        : 'Journey recorded as unverified — 0 points awarded.',
       journey,
-      updatedUser: {
-        fitnessPoints: user ? user.fitnessPoints : 0,
-        greenCredits: user ? user.greenCredits : 0,
-        totalCo2SavedKg: user ? user.totalCo2SavedKg : 0,
-      },
+      updatedUser: updatedUser ? {
+        fitnessPoints: updatedUser.fitnessPoints,
+        greenCredits: updatedUser.greenCredits,
+        totalCo2SavedKg: updatedUser.totalCo2SavedKg,
+      } : null,
     });
   } catch (error) {
     console.error('[JourneyController.recordJourney] Error:', error.message);

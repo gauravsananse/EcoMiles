@@ -4,6 +4,7 @@ const MetroTicket = require('../models/MetroTicket');
 const Journey = require('../models/Journey');
 const VerificationEvent = require('../models/VerificationEvent');
 const User = require('../models/User');
+const rewardEngine = require('./rewardEngine');
 const OfficialMetroProvider = require('./providers/OfficialMetroProvider');
 const DevelopmentMockMetroProvider = require('./providers/DevelopmentMockMetroProvider');
 
@@ -421,16 +422,23 @@ class MetroService {
 
     const isVerified = overallVerificationScore >= 0.75;
 
-    // 4. Calculate CO2 & Green Credits (Backend Authoritative Only)
+    // 4. Calculate CO2 & Green Credits (Backend Authoritative with Daily Limits & Duplicate Protection)
     const gramsCo2Saved = Math.round(
       finalDistanceKm * (this.emissionBaselines.privateVehicleGramsCo2PerKm - this.emissionBaselines.metroGramsCo2PerKm)
     );
-    const earnedGreenCredits = isVerified
-      ? Math.max(
-          Math.round(finalDistanceKm * this.emissionBaselines.minCreditsPerKm),
-          Math.round((gramsCo2Saved / 1000) * this.emissionBaselines.creditsPerKgCo2Saved)
-        )
-      : 0;
+    let earnedGreenCredits = 0;
+    if (isVerified) {
+      const rewardResult = await rewardEngine.awardDirectJourneyReward({
+        journeyId: journey._id,
+        userId: user?._id || journey.userId || null,
+        mode: 'METRO',
+        distanceKm: finalDistanceKm,
+        durationMinutes: elapsedMinutes,
+        isVerified: true,
+        confidence: overallVerificationScore,
+      });
+      earnedGreenCredits = rewardResult.rewardedGC || 0;
+    }
 
     // 5. Update Journey & Ticket State Machine
     journey.endTime = endTime;
@@ -456,13 +464,6 @@ class MetroService {
     if (ticket && isVerified) {
       ticket.status = 'USED';
       await ticket.save();
-    }
-
-    // Award Green Credits to User balance if authenticated
-    if (isVerified && earnedGreenCredits > 0 && user?._id) {
-      await User.findByIdAndUpdate(user._id, {
-        $inc: { greenCredits: earnedGreenCredits },
-      });
     }
 
     // Log Verification Events

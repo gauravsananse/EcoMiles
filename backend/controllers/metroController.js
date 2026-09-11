@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const metroService = require('../services/metroService');
 const busTicketService = require('../services/busTicketService');
 const MetroStation = require('../models/MetroStation');
@@ -183,7 +184,7 @@ exports.getJourneyDetails = async (req, res) => {
  */
 exports.validateBusTicket = async (req, res) => {
   try {
-    const { rawText, parsedData, selectedRoute, originName, destName } = req.body;
+    const { rawText, parsedData, selectedRoute, originName, destName, passengerCount } = req.body;
     if (!rawText && !parsedData) {
       return res.status(400).json({ success: false, error: 'rawText or parsedData is required for ticket validation' });
     }
@@ -194,6 +195,7 @@ exports.validateBusTicket = async (req, res) => {
       selectedRoute,
       originName,
       destName,
+      passengerCount,
       user: req.user,
     });
 
@@ -205,5 +207,110 @@ exports.validateBusTicket = async (req, res) => {
   } catch (error) {
     console.error('[MetroController.validateBusTicket] Error:', error.message);
     return res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * 9. Claim a remaining passenger slot on a shared bus ticket.
+ * The primary ticket holder shares the generated code; each signed-in friend
+ * can claim one slot and then start their own verified public journey.
+ */
+exports.joinSharedBusTicket = async (req, res) => {
+  try {
+    const { joinCode } = req.body;
+    if (!req.user?._id) {
+      return res.status(401).json({ success: false, error: 'Sign in to join a shared bus ticket.' });
+    }
+    if (!joinCode || !String(joinCode).trim()) {
+      return res.status(400).json({ success: false, error: 'A valid join code is required.' });
+    }
+
+    const MetroTicket = require('../models/MetroTicket');
+    const code = String(joinCode).trim().toUpperCase();
+    const userId = req.user._id;
+    const ticket = await MetroTicket.findOneAndUpdate(
+      {
+        joinCode: code,
+        expiresAt: { $gt: new Date() },
+        joinedPassengerUserIds: { $ne: userId },
+        $expr: { $lt: ['$passengerSlotsUsed', '$passengerCapacity'] },
+      },
+      {
+        $inc: { passengerSlotsUsed: 1 },
+        $addToSet: { joinedPassengerUserIds: userId },
+      },
+      { new: true }
+    );
+
+    if (!ticket) {
+      const existing = await MetroTicket.findOne({ joinCode: code });
+      const error = !existing
+        ? 'This join code is invalid.'
+        : existing.joinedPassengerUserIds?.some((id) => id.equals(userId))
+          ? 'You have already joined this ticket.'
+          : existing.passengerSlotsUsed >= existing.passengerCapacity
+            ? 'All passenger slots for this ticket have been claimed.'
+            : 'This ticket has expired.';
+      return res.status(400).json({ success: false, error });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Passenger slot claimed. You can now start your verified bus journey.',
+      ticket: {
+        _id: ticket._id,
+        ticketNumber: ticket.ticketNumber,
+        operator: ticket.operator,
+        busNumber: ticket.verificationMetadata?.busNumber || '',
+        fare: ticket.fare,
+        passengerCapacity: ticket.passengerCapacity,
+        passengerSlotsUsed: ticket.passengerSlotsUsed,
+      },
+    });
+  } catch (error) {
+    console.error('[MetroController.joinSharedBusTicket] Error:', error.message);
+    return res.status(500).json({ success: false, error: 'Unable to join this shared ticket.' });
+  }
+};
+
+/**
+ * 9. Link verified ticket to active journey
+ * POST /api/metro/link-ticket
+ */
+exports.linkTicketToJourney = async (req, res) => {
+  try {
+    const { journeyId, ticketId, ticketNumber, operator } = req.body;
+    if (!journeyId) {
+      return res.status(200).json({ success: true, message: 'Ticket noted' });
+    }
+
+    const Journey = require('../models/Journey');
+    const MetroTicket = require('../models/MetroTicket');
+
+    const journey = await Journey.findById(journeyId);
+    if (journey) {
+      if (journey.segments && journey.segments.length > 0) {
+        const seg = journey.segments[journey.segments.length - 1];
+        seg.verificationStatus = 'VERIFIED';
+        seg.greenCreditEligible = true;
+        if (!seg.evidence) seg.evidence = [];
+        seg.evidence.push(`Bus ticket verified: #${ticketNumber || ticketId} (${operator || 'PMPML'})`);
+      }
+      journey.journeyState = 'PUBLIC_TRANSPORT_VERIFIED';
+      await journey.save();
+    }
+
+    if (ticketId && mongoose.isValidObjectId(ticketId)) {
+      await MetroTicket.findByIdAndUpdate(ticketId, {
+        journeyId,
+        status: 'CLAIMED',
+        claimedAt: new Date(),
+      }).catch(() => {});
+    }
+
+    return res.status(200).json({ success: true, message: 'Ticket successfully attached to journey' });
+  } catch (error) {
+    console.error('[MetroController.linkTicketToJourney] Error:', error.message);
+    return res.status(200).json({ success: true, message: 'Logged' });
   }
 };

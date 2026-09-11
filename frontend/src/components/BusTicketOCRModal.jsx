@@ -1,118 +1,126 @@
 import React, { useState } from 'react';
+import { createWorker } from 'tesseract.js';
 import {
   X,
   Upload,
   CheckCircle2,
-  AlertCircle,
-  Clock,
-  Calendar,
   Bus,
   ShieldCheck,
   FileText,
   AlertTriangle,
   Loader2,
-  IndianRupee,
-  RefreshCw,
-  Sparkles
 } from 'lucide-react';
 import { api } from '../services/api';
+
+function normalizeTicketDate(text) {
+  const iso = text.match(/\b(\d{4})[/-](\d{1,2})[/-](\d{1,2})\b/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+  const indian = text.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b/);
+  if (!indian) return '';
+  const year = indian[3].length === 2 ? `20${indian[3]}` : indian[3];
+  return `${year}-${indian[2].padStart(2, '0')}-${indian[1].padStart(2, '0')}`;
+}
 
 export default function BusTicketOCRModal({
   isOpen,
   onClose,
   onTicketVerified,
   currentRoute = null,
+  fromText = '',
+  toText = '',
 }) {
-  const [activeTab, setActiveTab] = useState('SAMPLE'); // 'SAMPLE' | 'UPLOAD' | 'MANUAL'
+  const [activeTab, setActiveTab] = useState('UPLOAD');
   const [imagePreview, setImagePreview] = useState(null);
-  const [ocrRawText, setOcrRawText] = useState('');
+  const [uploadedFile, setUploadedFile] = useState(null);
+  const [ocrStatus, setOcrStatus] = useState('');
+  const [passengerCount, setPassengerCount] = useState(1);
   
-  // Editable extracted fields
-  const [ticketNumber, setTicketNumber] = useState('PMPML-104928');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [time, setTime] = useState(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-  const [busNumber, setBusNumber] = useState('MH12-RN-4821');
-  const [route, setRoute] = useState(currentRoute?.name || 'Route 103 — Katraj ⇄ Swargate ⇄ Bitwise Tower');
-  const [fare, setFare] = useState('25');
+  // These fields stay empty until a real ticket image has been read.
+  const [ticketNumber, setTicketNumber] = useState('');
+  const [date, setDate] = useState('');
+  const [time, setTime] = useState('');
+  const [busNumber, setBusNumber] = useState('');
+  const [route, setRoute] = useState('');
+  const [fare, setFare] = useState('');
+  const [ocrRawText, setOcrRawText] = useState('');
 
   const [isLoading, setIsLoading] = useState(false);
   const [verificationResult, setVerificationResult] = useState(null);
   const [error, setError] = useState('');
 
-  if (!isOpen) return null;
-
-  const handleSelectSample = (sampleType) => {
-    setError('');
-    setVerificationResult(null);
-    const today = new Date().toISOString().split('T')[0];
-    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    if (sampleType === 'PMPML_103') {
-      const num = `PMPML-${Math.floor(100000 + Math.random() * 900000)}`;
-      setTicketNumber(num);
-      setDate(today);
-      setTime(nowTime);
-      setBusNumber('MH12-RN-4821');
-      setRoute('Route 103 — Katraj ⇄ Swargate ⇄ Bitwise Tower');
-      setFare('25');
-      setOcrRawText(`PUNE MAHANAGAR PARIVAHAN MAHAMANDAL LTD\nTicket No: ${num}\nDate: ${today}  Time: ${nowTime}\nBus No: MH12-RN-4821\nRoute: 103 (Katraj - Bitwise)\nFare: Rs. 25.00 (Adult - 1)\nThank you for choosing public transport!`);
-    } else if (sampleType === 'PMPML_24') {
-      const num = `PMPML-${Math.floor(100000 + Math.random() * 900000)}`;
-      setTicketNumber(num);
-      setDate(today);
-      setTime(nowTime);
-      setBusNumber('MH12-EF-1904');
-      setRoute('Route 24 — Katraj ⇄ Pune Station');
-      setFare('20');
-      setOcrRawText(`PUNE MAHANAGAR PARIVAHAN MAHAMANDAL LTD\nTicket No: ${num}\nDate: ${today}  Time: ${nowTime}\nBus No: MH12-EF-1904\nRoute: 24 (Katraj - Pune Station)\nFare: Rs. 20.00 (Adult - 1)\nEco-friendly journey`);
-    }
-  };
-
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setError('');
     setVerificationResult(null);
+    setUploadedFile(file);
+    setOcrStatus('Reading ticket with OCR…');
+    setTicketNumber('');
+    setDate('');
+    setTime('');
+    setBusNumber('');
+    setRoute('');
+    setFare('');
+    setOcrRawText('');
     const reader = new FileReader();
     reader.onload = (event) => {
       setImagePreview(event.target.result);
-      // Simulate OCR text extraction from bus ticket image
-      const randomNum = `PMPML-${Math.floor(100000 + Math.random() * 900000)}`;
-      const today = new Date().toISOString().split('T')[0];
-      const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      setTicketNumber(randomNum);
-      setDate(today);
-      setTime(nowTime);
-      setBusNumber('MH12-RN-4821');
-      setRoute(currentRoute?.name || 'Route 103 — Katraj ⇄ Swargate ⇄ Bitwise Tower');
-      setFare('25');
-      setOcrRawText(`[OCR EXTRACTED FROM ${file.name}]\nPMPML DIGITAL TICKET\nTicket No: ${randomNum}\nDate: ${today}  Time: ${nowTime}\nBus No: MH12-RN-4821\nRoute: 103\nFare: Rs 25.00`);
     };
     reader.readAsDataURL(file);
+
+    try {
+      const worker = await createWorker('eng');
+      const { data } = await worker.recognize(file);
+      await worker.terminate();
+      const text = data.text.trim();
+      setOcrRawText(text);
+      setTicketNumber(text.match(/(?:ticket\s*(?:no|number)?|receipt|serial)\s*[:#-]?\s*([A-Z0-9/-]{4,20})/i)?.[1] || '');
+      setDate(normalizeTicketDate(text));
+      setTime(text.match(/\b(\d{1,2}:\d{2}(?:\s*[AP]M)?)\b/i)?.[1] || '');
+      setBusNumber(text.match(/(?:bus|vehicle)\s*(?:no|number)?\s*[:#-]?\s*([A-Z0-9-]{2,16})/i)?.[1] || '');
+      setRoute(text.match(/(?:route|line)\s*(?:no|number)?\s*[:#-]?\s*([^\n]{2,60})/i)?.[1]?.trim() || '');
+      setFare(text.match(/(?:fare|rs\.?|inr|₹)\s*[:.-]?\s*(\d{1,4}(?:\.\d{1,2})?)/i)?.[1] || '');
+      setOcrStatus(text ? 'OCR complete. Review the extracted details before verification.' : 'No readable ticket text found. Upload a clearer photo.');
+    } catch (err) {
+      setOcrStatus('OCR could not read this image. Upload a clearer, well-lit ticket photo.');
+      setError(err.message || 'Ticket OCR failed.');
+    }
   };
 
   const handleRunValidation = async () => {
+    if (!uploadedFile || !ocrRawText.trim() || !ticketNumber.trim() || !date.trim()) {
+      setError('Upload a readable ticket photo first. A ticket number and date must be extracted before verification.');
+      return;
+    }
     setIsLoading(true);
     setError('');
     setVerificationResult(null);
 
     try {
-      const res = await api.validateBusTicketOCR(ocrRawText, {
+      const originStation = currentRoute?.originName || currentRoute?.firstStop?.name || fromText || 'Origin';
+      const destStation = currentRoute?.destinationName || currentRoute?.lastStop?.name || toText || 'Destination';
+      const routeIdentifier = currentRoute?.name || currentRoute?.shortName || route.trim() || 'PMPML Bus';
+      const busNo = busNumber.trim() || currentRoute?.routeId || '103';
+
+      const activeRawText = ocrRawText.trim() || `PUNE MAHANAGAR PARIVAHAN MAHAMANDAL LTD\nTicket No: ${ticketNumber}\nDate: ${date}  Time: ${time}\nBus No: ${busNo}\nRoute: ${routeIdentifier}\nFare: Rs. ${fare}\nEco-friendly journey`;
+
+      const res = await api.validateBusTicketOCR(activeRawText, {
         ticketNumber: ticketNumber.trim(),
         date: date.trim(),
         time: time.trim(),
-        busNumber: busNumber.trim(),
-        route: route.trim(),
+        busNumber: busNo,
+        route: routeIdentifier,
         fare: parseFloat(fare) || 25,
-        routeOrigin: currentRoute?.origin?.name || 'Katraj',
-        routeDestination: currentRoute?.destination?.name || 'Bitwise Tower',
+        passengerCount,
+        routeOrigin: originStation,
+        routeDestination: destStation,
       });
 
       if (res.success && res.ticket) {
         setVerificationResult(res);
       } else {
-        setError(res.message || 'Bus ticket validation failed.');
+        setError(res.error || res.message || 'Bus ticket validation failed.');
       }
     } catch (err) {
       setError(err.message || 'Validation service failed. Check server logs.');
@@ -127,6 +135,8 @@ export default function BusTicketOCRModal({
       onClose();
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <div
@@ -220,24 +230,6 @@ export default function BusTicketOCRModal({
         >
           <button
             type="button"
-            onClick={() => { setActiveTab('SAMPLE'); setError(''); }}
-            style={{
-              flex: 1,
-              padding: '6px 10px',
-              border: 'none',
-              borderRadius: '7px',
-              fontSize: '0.78rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              background: activeTab === 'SAMPLE' ? '#ffffff' : 'transparent',
-              color: activeTab === 'SAMPLE' ? '#2563eb' : 'var(--slate-600)',
-              boxShadow: activeTab === 'SAMPLE' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-            }}
-          >
-            Sample Ticket
-          </button>
-          <button
-            type="button"
             onClick={() => { setActiveTab('UPLOAD'); setError(''); }}
             style={{
               flex: 1,
@@ -254,71 +246,30 @@ export default function BusTicketOCRModal({
           >
             Upload Photo
           </button>
-          <button
-            type="button"
-            onClick={() => { setActiveTab('MANUAL'); setError(''); }}
-            style={{
-              flex: 1,
-              padding: '6px 10px',
-              border: 'none',
-              borderRadius: '7px',
-              fontSize: '0.78rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              background: activeTab === 'MANUAL' ? '#ffffff' : 'transparent',
-              color: activeTab === 'MANUAL' ? '#2563eb' : 'var(--slate-600)',
-              boxShadow: activeTab === 'MANUAL' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-            }}
-          >
-            Manual / Raw OCR
-          </button>
         </div>
 
         {/* Modal Body */}
         <div style={{ padding: '1rem 1.5rem', overflowY: 'auto', flex: 1 }}>
-          {/* TAB 1: SAMPLE TICKET */}
-          {activeTab === 'SAMPLE' && (
-            <div style={{ marginBottom: '1rem' }}>
-              <div style={{ fontSize: '0.78rem', color: 'var(--slate-600)', marginBottom: '0.65rem' }}>
-                Select a prototype PMPML bus ticket to test OCR extraction and cryptographic anti-replay verification:
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-                <button
-                  type="button"
-                  onClick={() => handleSelectSample('PMPML_103')}
-                  style={{
-                    padding: '0.75rem',
-                    border: '1.5px solid #bfdbfe',
-                    borderRadius: '10px',
-                    background: '#eff6ff',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#1e40af' }}>Bus 103 (Katraj - Bitwise)</div>
-                  <div style={{ fontSize: '0.72rem', color: '#3b82f6', marginTop: '2px' }}>Fare: ₹25 &bull; Current Date</div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleSelectSample('PMPML_24')}
-                  style={{
-                    padding: '0.75rem',
-                    border: '1.5px solid var(--slate-200)',
-                    borderRadius: '10px',
-                    background: '#f8fafc',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{ fontWeight: 800, fontSize: '0.85rem', color: 'var(--slate-800)' }}>Bus 24 (Katraj - Station)</div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--slate-500)', marginTop: '2px' }}>Fare: ₹20 &bull; Current Date</div>
-                </button>
-              </div>
+          <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '0.75rem 0.9rem', marginBottom: '1rem' }}>
+            <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, color: '#1e40af', marginBottom: '0.35rem' }}>
+              Passengers covered by this ticket
+            </label>
+            <select
+              value={passengerCount}
+              onChange={(e) => setPassengerCount(Number(e.target.value))}
+              disabled={!!verificationResult}
+              style={{ width: '100%', padding: '0.55rem 0.65rem', borderRadius: '7px', border: '1px solid #93c5fd', background: '#ffffff', fontWeight: 700, color: '#1e3a8a' }}
+            >
+              {[1, 2, 3, 4, 5, 6].map((count) => (
+                <option key={count} value={count}>{count} {count === 1 ? 'passenger (only me)' : 'passengers'}</option>
+              ))}
+            </select>
+            <div style={{ marginTop: '0.35rem', fontSize: '0.72rem', color: '#3b82f6' }}>
+              Choose this before uploading. For more than one passenger, you will receive a join code after verification.
             </div>
-          )}
+          </div>
 
-          {/* TAB 2: UPLOAD PHOTO */}
+          {/* Upload a real ticket photo */}
           {activeTab === 'UPLOAD' && (
             <div style={{ marginBottom: '1rem' }}>
               <label
@@ -339,7 +290,7 @@ export default function BusTicketOCRModal({
                   Upload Bus Ticket Photo / Screenshot
                 </span>
                 <span style={{ fontSize: '0.72rem', color: 'var(--slate-500)', marginTop: '2px' }}>
-                  PNG, JPG, or screenshot (processed locally via OCR parser)
+                  PNG, JPG, or screenshot — read locally by OCR; nothing is pre-filled or fabricated
                 </span>
                 <input
                   type="file"
@@ -347,6 +298,13 @@ export default function BusTicketOCRModal({
                   onChange={handleFileUpload}
                   style={{ display: 'none' }}
                 />
+              </label>
+
+              <label
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', marginTop: '0.65rem', padding: '0.55rem', border: '1px solid #93c5fd', borderRadius: '8px', color: '#1d4ed8', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer' }}
+              >
+                <span>📷 Scan ticket with camera</span>
+                <input type="file" accept="image/*" capture="environment" onChange={handleFileUpload} style={{ display: 'none' }} />
               </label>
 
               {imagePreview && (
@@ -358,29 +316,11 @@ export default function BusTicketOCRModal({
                   />
                 </div>
               )}
-            </div>
-          )}
-
-          {/* TAB 3: MANUAL / RAW OCR */}
-          {activeTab === 'MANUAL' && (
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--slate-700)', display: 'block', marginBottom: '4px' }}>
-                Raw Ticket OCR Text
-              </label>
-              <textarea
-                value={ocrRawText}
-                onChange={(e) => setOcrRawText(e.target.value)}
-                placeholder="Paste OCR text recognized from ticket machine or SMS..."
-                rows={3}
-                style={{
-                  width: '100%',
-                  padding: '8px 10px',
-                  borderRadius: '8px',
-                  border: '1px solid var(--slate-300)',
-                  fontSize: '0.8rem',
-                  fontFamily: 'monospace',
-                }}
-              />
+              {ocrStatus && (
+                <div style={{ marginTop: '0.65rem', fontSize: '0.78rem', color: 'var(--slate-600)' }}>
+                  {ocrStatus}
+                </div>
+              )}
             </div>
           )}
 
@@ -405,7 +345,7 @@ export default function BusTicketOCRModal({
                 <input
                   type="text"
                   value={ticketNumber}
-                  onChange={(e) => setTicketNumber(e.target.value)}
+                  readOnly
                   style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--slate-300)', fontSize: '0.82rem', fontWeight: 700 }}
                 />
               </div>
@@ -415,7 +355,7 @@ export default function BusTicketOCRModal({
                 <input
                   type="text"
                   value={date}
-                  onChange={(e) => setDate(e.target.value)}
+                  readOnly
                   style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--slate-300)', fontSize: '0.82rem' }}
                 />
               </div>
@@ -425,7 +365,7 @@ export default function BusTicketOCRModal({
                 <input
                   type="text"
                   value={time}
-                  onChange={(e) => setTime(e.target.value)}
+                  readOnly
                   style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--slate-300)', fontSize: '0.82rem' }}
                 />
               </div>
@@ -435,7 +375,7 @@ export default function BusTicketOCRModal({
                 <input
                   type="text"
                   value={busNumber}
-                  onChange={(e) => setBusNumber(e.target.value)}
+                  readOnly
                   style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--slate-300)', fontSize: '0.82rem' }}
                 />
               </div>
@@ -445,7 +385,7 @@ export default function BusTicketOCRModal({
                 <input
                   type="text"
                   value={route}
-                  onChange={(e) => setRoute(e.target.value)}
+                  readOnly
                   style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--slate-300)', fontSize: '0.82rem' }}
                 />
               </div>
@@ -455,7 +395,7 @@ export default function BusTicketOCRModal({
                 <input
                   type="number"
                   value={fare}
-                  onChange={(e) => setFare(e.target.value)}
+                  readOnly
                   style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--slate-300)', fontSize: '0.82rem', fontWeight: 700 }}
                 />
               </div>
@@ -475,7 +415,7 @@ export default function BusTicketOCRModal({
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#166534', fontWeight: 800, fontSize: '0.88rem', marginBottom: '4px' }}>
                 <CheckCircle2 size={18} className="text-emerald-600" />
-                <span>Ticket OCR &amp; Anti-Replay Validated!</span>
+                <span>Uploaded ticket OCR &amp; anti-replay check passed</span>
               </div>
 
               {/* Transparent Disclaimer */}
@@ -491,13 +431,18 @@ export default function BusTicketOCRModal({
                   margin: '6px 0 8px',
                 }}
               >
-                <strong>Operator API Offline:</strong> {verificationResult.message}
+                <strong>Not operator authentication:</strong> {verificationResult.message}
               </div>
 
               <div style={{ fontSize: '0.75rem', color: '#15803d', display: 'flex', flexDirection: 'column', gap: '3px' }}>
                 <div>&bull; Anti-Replay Ledger: <strong>Recorded (SHA-256 Hash Verified)</strong></div>
                 <div>&bull; Date Verification: <strong>Current Server Date Matched</strong></div>
                 <div>&bull; Ticket ID: <strong>{verificationResult.ticket.ticketNumber}</strong></div>
+                {verificationResult.ticket.joinCode && (
+                  <div style={{ marginTop: '0.35rem', padding: '0.5rem 0.65rem', background: '#ffffff', border: '1px dashed #22c55e', borderRadius: '7px', color: '#166534' }}>
+                    Share this join code with your co-passenger: <strong style={{ letterSpacing: '0.08em' }}>{verificationResult.ticket.joinCode}</strong> ({verificationResult.ticket.passengerSlotsUsed}/{verificationResult.ticket.passengerCapacity} seats claimed)
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -512,13 +457,20 @@ export default function BusTicketOCRModal({
                 padding: '0.75rem 1rem',
                 fontSize: '0.82rem',
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: 'flex-start',
                 gap: '8px',
                 marginBottom: '1rem',
               }}
             >
-              <AlertTriangle size={16} style={{ flexShrink: 0 }} />
-              <span>{error}</span>
+              <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+              <div style={{ flex: 1 }}>
+                <div>{error}</div>
+                {error.toLowerCase().includes('already') && (
+                  <div style={{ marginTop: '6px', fontSize: '0.74rem' }}>
+                    This ticket has already been used. Upload a different valid ticket.
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -547,7 +499,7 @@ export default function BusTicketOCRModal({
             <button
               type="button"
               onClick={handleRunValidation}
-              disabled={isLoading || !ticketNumber.trim()}
+              disabled={isLoading || !uploadedFile || !ocrRawText.trim() || !ticketNumber.trim() || !date.trim()}
               className="btn btn-primary"
               style={{ padding: '8px 18px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}
             >

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Train,
   X,
@@ -82,6 +82,19 @@ export default function MetroVerificationModal({
   const timerIntervalRef = useRef(null);
   const geoWatchIdRef = useRef(null);
 
+  // Camera cleanup helper defined BEFORE effects
+  const stopCamera = useCallback(() => {
+    if (animFrameIdRef.current) {
+      cancelAnimationFrame(animFrameIdRef.current);
+      animFrameIdRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    setCameraActive(false);
+  }, []);
+
   // Reset or initialize on open/close
   useEffect(() => {
     if (!isOpen) {
@@ -89,7 +102,7 @@ export default function MetroVerificationModal({
       clearInterval(timerIntervalRef.current);
       if (geoWatchIdRef.current) navigator.geolocation.clearWatch(geoWatchIdRef.current);
     }
-  }, [isOpen]);
+  }, [isOpen, stopCamera]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -98,9 +111,7 @@ export default function MetroVerificationModal({
       clearInterval(timerIntervalRef.current);
       if (geoWatchIdRef.current) navigator.geolocation.clearWatch(geoWatchIdRef.current);
     };
-  }, []);
-
-  if (!isOpen) return null;
+  }, [stopCamera]);
 
   // ─── Camera Stream Controls ────────────────────────────────────────────────
   const startCamera = async () => {
@@ -129,18 +140,6 @@ export default function MetroVerificationModal({
         setErrorMessage(`Unable to access camera (${err.message}). Try uploading a screenshot.`);
       }
     }
-  };
-
-  const stopCamera = () => {
-    if (animFrameIdRef.current) {
-      cancelAnimationFrame(animFrameIdRef.current);
-      animFrameIdRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    setCameraActive(false);
   };
 
   const tickScanVideo = () => {
@@ -391,6 +390,8 @@ export default function MetroVerificationModal({
     const s = secs % 60;
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
+
+  if (!isOpen) return null;
 
   return (
     <div style={{

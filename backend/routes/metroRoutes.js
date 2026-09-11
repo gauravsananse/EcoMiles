@@ -27,4 +27,8 @@ router.get('/journey/:id', optionalAuth, metroController.getJourneyDetails);
 // 8. Bus Ticket OCR validation & anti-replay
 router.post('/bus/verify-ticket', optionalAuth, metroController.validateBusTicket);
 
+// 9. Link ticket to active journey
+router.post('/bus/join', optionalAuth, metroController.joinSharedBusTicket);
+router.post('/link-ticket', optionalAuth, metroController.linkTicketToJourney);
+
 module.exports = router;

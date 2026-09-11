@@ -76,49 +76,51 @@ class AIModeDetectionService {
     const carBaselineCo2PerKm = 0.192; // kg
 
     switch (mode) {
+      case 'WALK':
       case 'WALKING':
-        fitnessPoints = Math.round(dist * 15 + dur * 0.5);
-        greenCredits = Math.round(dist * 10);
+        // 10 FP per 1,000 steps (~1250 steps/km) or steps / 100
+        fitnessPoints = Math.round((dist * 1250) / 1000) * 10;
+        greenCredits = Math.round(dist * 5);
         co2AvoidedKg = Number((dist * carBaselineCo2PerKm).toFixed(3));
-        caloriesBurned = Math.round(dist * 65); // ~65 kcal per km walking
+        caloriesBurned = Math.round(dist * 65);
         break;
 
       case 'CYCLING':
-        fitnessPoints = Math.round(dist * 10 + dur * 0.8);
-        greenCredits = Math.round(dist * 12);
+        // 10 FP per km, 8 GC per km
+        fitnessPoints = Math.round(dist * 10);
+        greenCredits = Math.round(dist * 8);
         co2AvoidedKg = Number((dist * carBaselineCo2PerKm).toFixed(3));
-        caloriesBurned = Math.round(dist * 42); // ~42 kcal per km cycling
+        caloriesBurned = Math.round(dist * 42);
         break;
 
       case 'BUS':
-        fitnessPoints = Math.round(dur * 0.4); // Light active transit points
-        greenCredits = Math.round(dist * 6);
-        // Bus emits ~50g/km/pax vs car 192g -> saves ~142g/km
+      case 'PUBLIC_TRANSPORT':
+        fitnessPoints = 0;
+        greenCredits = Math.round(dist * 5);
         co2AvoidedKg = Number((dist * (carBaselineCo2PerKm - 0.05)).toFixed(3));
         caloriesBurned = Math.round(dur * 2.5);
         break;
 
       case 'METRO':
-        fitnessPoints = Math.round(dur * 0.3);
-        greenCredits = Math.round(dist * 8);
-        // Electric Metro is highly clean -> saves ~170g/km
+      case 'TRAIN':
+        fitnessPoints = 0;
+        greenCredits = Math.round(dist * 5);
         co2AvoidedKg = Number((dist * (carBaselineCo2PerKm - 0.02)).toFixed(3));
         caloriesBurned = Math.round(dur * 2.0);
         break;
 
       case 'EV':
-        fitnessPoints = 5;
-        greenCredits = Math.round(dist * 5);
-        // EV zero tailpipe vs ICE car -> saves ~120g/km after grid emission
+        fitnessPoints = 0;
+        greenCredits = Math.round(dist * 3);
         co2AvoidedKg = Number((dist * 0.12).toFixed(3));
         caloriesBurned = Math.round(dur * 1.5);
         break;
 
       default:
-        fitnessPoints = Math.round(dist * 5);
-        greenCredits = Math.round(dist * 4);
-        co2AvoidedKg = Number((dist * 0.08).toFixed(3));
-        caloriesBurned = Math.round(dur * 2);
+        fitnessPoints = 0;
+        greenCredits = 0;
+        co2AvoidedKg = 0;
+        caloriesBurned = 0;
         break;
     }
 

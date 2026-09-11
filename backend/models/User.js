@@ -27,28 +27,28 @@ const userSchema = new mongoose.Schema({
   // Dual-Economy Points Balances
   fitnessPoints: {
     type: Number,
-    default: 150, // Starting bonus points for new users
+    default: 0,
     min: 0,
   },
   greenCredits: {
     type: Number,
-    default: 100, // Starting bonus credits for new users
+    default: 0,
     min: 0,
   },
   // Cumulative Impact Metrics
   totalCo2SavedKg: {
     type: Number,
-    default: 4.8,
+    default: 0,
     min: 0,
   },
   totalDistanceKm: {
     type: Number,
-    default: 24.5,
+    default: 0,
     min: 0,
   },
   totalActiveMinutes: {
     type: Number,
-    default: 95,
+    default: 0,
     min: 0,
   },
   createdAt: {

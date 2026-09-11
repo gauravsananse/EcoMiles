@@ -12,11 +12,11 @@ const formatUser = (user) => ({
   id: user._id,
   name: user.name,
   email: user.email,
-  fitnessPoints: user.fitnessPoints ?? 150,
-  greenCredits: user.greenCredits ?? 100,
-  totalCo2SavedKg: user.totalCo2SavedKg ?? 4.8,
-  totalDistanceKm: user.totalDistanceKm ?? 24.5,
-  totalActiveMinutes: user.totalActiveMinutes ?? 95,
+  fitnessPoints: user.fitnessPoints ?? 0,
+  greenCredits: user.greenCredits ?? 0,
+  totalCo2SavedKg: user.totalCo2SavedKg ?? 0,
+  totalDistanceKm: user.totalDistanceKm ?? 0,
+  totalActiveMinutes: user.totalActiveMinutes ?? 0,
   createdAt: user.createdAt,
 });
 
@@ -58,11 +58,11 @@ exports.register = async (req, res) => {
       name: name.trim(),
       email: cleanEmail,
       passwordHash,
-      fitnessPoints: 150,
-      greenCredits: 100,
-      totalCo2SavedKg: 4.8,
-      totalDistanceKm: 24.5,
-      totalActiveMinutes: 95,
+      fitnessPoints: 0,
+      greenCredits: 0,
+      totalCo2SavedKg: 0,
+      totalDistanceKm: 0,
+      totalActiveMinutes: 0,
     });
 
     const token = signToken(user._id);
