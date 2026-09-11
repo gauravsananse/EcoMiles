@@ -227,6 +227,6 @@ UPI - ₹ १०.००
     assert.equal(parsed.busNumber, 'MH12-RN-4821');
     assert.equal(parsed.operator, 'PMPML (Pune)');
     assert.ok(parsed.ticketDate instanceof Date);
-    assert.equal(parsed.ticketTimeStr, '12:03:59');
+    assert.equal(parsed.ticketTimeStr, '12:03');
   });
 });

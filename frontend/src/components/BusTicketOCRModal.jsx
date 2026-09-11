@@ -21,20 +21,59 @@ function convertDevanagariDigits(str) {
   return String(str).replace(/[०-९]/g, (ch) => devanagariMap[ch] || ch);
 }
 
-function normalizeTicketDate(text) {
+function extractTicketDate(text) {
+  if (!text) return '';
   const clean = convertDevanagariDigits(text);
-  const iso = clean.match(/\b(\d{4})[/.-](\d{1,2})[/.-](\d{1,2})\b/);
-  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
-  const indian = clean.match(/\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})\b/);
-  if (!indian) return '';
-  const year = indian[3].length === 2 ? `20${indian[3]}` : indian[3];
-  return `${year}-${indian[2].padStart(2, '0')}-${indian[1].padStart(2, '0')}`;
+
+  // 1. Indian format: DD/MM/YYYY or DD/MM/YY (supports /, ., -, :, |, \, and spaces)
+  const indianMatch = clean.match(/(?:^|[^\d])([0-3]?\d)\s*[/|\\.:\s-]\s*([0-1]?\d)\s*[/|\\.:\s-]\s*(\d{2,4})(?:[^\d]|$)/);
+  if (indianMatch) {
+    const day = parseInt(indianMatch[1], 10);
+    const month = parseInt(indianMatch[2], 10);
+    let year = parseInt(indianMatch[3], 10);
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      if (year < 100) year += 2000;
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  // 2. ISO format: YYYY/MM/DD
+  const isoMatch = clean.match(/(?:^|[^\d])(20\d{2})\s*[/|\\.:\s-]\s*([0-1]?\d)\s*[/|\\.:\s-]\s*([0-3]?\d)(?:[^\d]|$)/);
+  if (isoMatch) {
+    const year = parseInt(isoMatch[1], 10);
+    const month = parseInt(isoMatch[2], 10);
+    const day = parseInt(isoMatch[3], 10);
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  // 3. Compact format: DDMMYYYY or DDMMYY
+  const compactMatch = clean.match(/(?:^|[^\d])([0-3]\d)([0-1]\d)(20\d{2}|\d{2})(?:[^\d]|$)/);
+  if (compactMatch) {
+    const day = parseInt(compactMatch[1], 10);
+    const month = parseInt(compactMatch[2], 10);
+    let year = parseInt(compactMatch[3], 10);
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+      if (year < 100) year += 2000;
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  return '';
 }
 
 function extractTicketTime(text) {
+  if (!text) return '';
   const clean = convertDevanagariDigits(text);
-  const match = clean.match(/\b(\d{1,2}[:.]\d{2}(?:[:.]\d{2})?(?:\s*[AP]M)?)\b/i);
-  return match ? match[1].replace('.', ':') : '';
+  const match = clean.match(/(?:^|[^\d])([0-2]?\d)\s*[:.]\s*([0-5]\d)(?:\s*[:.]\s*([0-5]\d))?\s*(AM|PM)?(?:[^\d]|$)/i);
+  if (!match) return '';
+  let h = parseInt(match[1], 10);
+  const m = parseInt(match[2], 10);
+  const ampm = match[4] ? match[4].toUpperCase() : null;
+  if (ampm === 'PM' && h < 12) h += 12;
+  if (ampm === 'AM' && h === 12) h = 0;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
 function extractTicketNumber(text) {
@@ -125,7 +164,7 @@ export default function BusTicketOCRModal({
       setOcrRawText(text);
 
       const extractedNum = extractTicketNumber(text);
-      const extractedDate = normalizeTicketDate(text);
+      const extractedDate = extractTicketDate(text);
       const extractedTime = extractTicketTime(text);
       const extractedBus = extractBusNumber(text);
       const extractedRt = extractRoute(text);
@@ -138,7 +177,7 @@ export default function BusTicketOCRModal({
       if (extractedRt) setRoute(extractedRt);
       if (extractedFare) setFare(extractedFare);
 
-      setOcrStatus(text ? 'OCR complete. Review or edit the extracted details below before verification.' : 'No readable ticket text found. You can enter the details manually below.');
+      setOcrStatus(text ? 'OCR complete. Details extracted below for real-time verification.' : 'No readable ticket text found. You can enter the details manually below.');
     } catch (err) {
       setOcrStatus('OCR could not read this image. You can enter the details manually below.');
       setError(err.message || 'Ticket OCR failed.');
@@ -151,13 +190,22 @@ export default function BusTicketOCRModal({
       return;
     }
 
-    if (!ticketNumber.trim()) {
-      setError('Ticket Number is required. Enter it in the Ticket Number field below.');
-      return;
+    // Try input date first, or fallback extract from raw text
+    let effectiveDate = date.trim();
+    if (!effectiveDate && ocrRawText) {
+      effectiveDate = extractTicketDate(ocrRawText);
+      if (effectiveDate) setDate(effectiveDate);
     }
 
-    if (!date.trim()) {
-      setError('Ticket Date is required (format: YYYY-MM-DD or DD/MM/YYYY).');
+    // Try input time first, or fallback extract from raw text
+    let effectiveTime = time.trim();
+    if (!effectiveTime && ocrRawText) {
+      effectiveTime = extractTicketTime(ocrRawText);
+      if (effectiveTime) setTime(effectiveTime);
+    }
+
+    if (!effectiveDate) {
+      setError('❌ Ticket Rejected: Could not verify date on ticket. Only valid tickets issued today can be verified.');
       return;
     }
 
@@ -165,9 +213,9 @@ export default function BusTicketOCRModal({
     const pad = (n) => String(n).padStart(2, '0');
     const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 
-    // Normalize entered date
-    let normEnteredDate = date.trim();
-    if (normEnteredDate.includes('/') || normEnteredDate.includes('.')) {
+    // Normalize entered date (handles DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD, DD.MM.YY)
+    let normEnteredDate = effectiveDate;
+    if (normEnteredDate.includes('/') || normEnteredDate.includes('.') || normEnteredDate.includes('-')) {
       const parts = normEnteredDate.split(/[./-]/);
       if (parts.length === 3) {
         if (parts[0].length === 4) {
@@ -181,13 +229,13 @@ export default function BusTicketOCRModal({
 
     // 1. Strict Date Matching: Ticket must be issued TODAY
     if (normEnteredDate !== todayStr) {
-      setError(`❌ Date Mismatch: Ticket date (${normEnteredDate}) does not match today's date (${todayStr}). Only tickets issued today can be verified.`);
+      setError(`❌ Ticket Rejected: Date Mismatch. Ticket was issued on ${normEnteredDate}, which does not match today's date (${todayStr}). Only tickets issued today can be verified.`);
       return;
     }
 
     // 2. Strict Time Window: 10-minute boarding tolerance
-    if (time.trim()) {
-      const timeMatch = time.trim().match(/(\d{1,2})[:.](\d{2})(?:[:.](\d{2}))?\s*(AM|PM)?/i);
+    if (effectiveTime) {
+      const timeMatch = effectiveTime.match(/(\d{1,2})[:.](\d{2})(?:[:.](\d{2}))?\s*(AM|PM)?/i);
       if (timeMatch) {
         let hours = parseInt(timeMatch[1], 10);
         const minutes = parseInt(timeMatch[2], 10);
@@ -203,13 +251,13 @@ export default function BusTicketOCRModal({
         const nowClock = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
 
         if (diffMinutes < -3) {
-          setError(`❌ Invalid Ticket Time: Ticket time (${ticketClock}) is in the future compared to current time (${nowClock}).`);
+          setError(`❌ Ticket Rejected: Invalid Ticket Time. Ticket time (${ticketClock}) is in the future compared to current time (${nowClock}).`);
           return;
         }
 
         if (diffMinutes > 10) {
           const lateMins = Math.round(diffMinutes);
-          setError(`❌ Late Ticket Upload: Ticket was issued at ${ticketClock}, but current time is ${nowClock} (${lateMins} minutes ago). Maximum allowed tolerance is 10 minutes.`);
+          setError(`❌ Ticket Rejected: Late Upload. Ticket was issued at ${ticketClock}, which is ${lateMins} minutes ago. Current time is ${nowClock}. Maximum allowed tolerance is 10 minutes.`);
           return;
         }
       }

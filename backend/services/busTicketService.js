@@ -38,10 +38,11 @@ class BusTicketService {
 
     const ticketNumber = ticketNoMatch ? ticketNoMatch[1].trim() : '';
 
-    // Extract Date (DD/MM/YYYY or DD-MM-YYYY or YYYY-MM-DD or DD.MM.YY)
-    const dateMatch = fullText.match(/(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/) ||
-                      fullText.match(/(\d{1,2})\.(\d{1,2})\.(\d{2,4})/) ||
-                      fullText.match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+    // Extract Date (DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD, DD.MM.YY with optional spaces and separators)
+    const dateMatch =
+      fullText.match(/(?:^|[^\d])([0-3]?\d)\s*[/|\\.:\s-]\s*([0-1]?\d)\s*[/|\\.:\s-]\s*(\d{2,4})(?:[^\d]|$)/) ||
+      fullText.match(/(?:^|[^\d])(20\d{2})\s*[/|\\.:\s-]\s*([0-1]?\d)\s*[/|\\.:\s-]\s*([0-3]?\d)(?:[^\d]|$)/);
+
     let ticketDate = null;
     if (dateMatch) {
       let day, month, year;
@@ -55,12 +56,22 @@ class BusTicketService {
         year = parseInt(dateMatch[3], 10);
         if (year < 100) year += 2000;
       }
-      ticketDate = new Date(year, month, day);
+      if (day >= 1 && day <= 31 && month >= 0 && month <= 11) {
+        ticketDate = new Date(year, month, day);
+      }
     }
 
     // Extract Time (HH:MM or HH:MM:SS AM/PM)
-    const timeMatch = fullText.match(/(\d{1,2})[:.](\d{2})(?:[:.](\d{2}))?\s*(AM|PM)?/i);
-    let ticketTimeStr = timeMatch ? timeMatch[0].replace('.', ':').trim() : '';
+    const timeMatch = fullText.match(/(?:^|[^\d])([0-2]?\d)\s*[:.]\s*([0-5]\d)(?:\s*[:.]\s*([0-5]\d))?\s*(AM|PM)?(?:[^\d]|$)/i);
+    let ticketTimeStr = '';
+    if (timeMatch) {
+      let h = parseInt(timeMatch[1], 10);
+      const m = parseInt(timeMatch[2], 10);
+      const ampm = timeMatch[4] ? timeMatch[4].toUpperCase() : null;
+      if (ampm === 'PM' && h < 12) h += 12;
+      if (ampm === 'AM' && h === 12) h = 0;
+      ticketTimeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    }
 
     // Extract Bus / Route Number
     const busPlateMatch = fullText.match(/\b(MH\s*[-]?\s*12[A-Z0-9-]*)\b/i);
