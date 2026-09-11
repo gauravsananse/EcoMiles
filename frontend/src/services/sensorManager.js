@@ -86,6 +86,7 @@ class SensorManager {
     // Real-time UI Update Throttling (~10Hz / 100ms) to prevent 100% CPU lock on mobile
     this.lastUiUpdateTime = 0;
     this.updateScheduled = false;
+    this.lastFlushedStepCount = 0;
 
     // Check static browser support
     this.checkInitialSupport();
@@ -147,6 +148,13 @@ class SensorManager {
       walkingVerificationService.setTransportMode('WALK');
       this.currentReading.cyclingConfidence = null; // STRICTLY NULL
       this.currentReading.isCyclingVerified = false;
+    } else if (this.currentMode === 'STATIONARY') {
+      // User paused walking or stopped briefly — preserve step count & keep step detection ready
+      this.activityState = 'IDLE';
+      stepCountingEngine.setEnabled(true);
+      walkingVerificationService.setTransportMode('WALK');
+      this.currentReading.cyclingConfidence = null;
+      this.currentReading.cadence = 0;
     } else {
       stepCountingEngine.setEnabled(false);
       walkingVerificationService.setTransportMode(this.currentMode);
@@ -483,8 +491,8 @@ class SensorManager {
       this.currentReading.accelerationZ = az;
       this.currentReading.sensorAvailability.accelerometer = true;
 
-      // Real step detection ONLY when in WALK mode
-      if (this.currentMode === 'WALK' || this.currentMode === 'WALKING') {
+      // Real step detection when in WALK, WALKING, or STATIONARY mode
+      if (this.currentMode === 'WALK' || this.currentMode === 'WALKING' || this.currentMode === 'STATIONARY') {
         const stepResult = walkingVerificationService.processAccelerometerReading({
           x: ax,
           y: ay,
@@ -705,6 +713,10 @@ class SensorManager {
       ? buffer.cadenceSamples.reduce((a, b) => a + b, 0) / buffer.cadenceSamples.length
       : this.currentReading.cadence;
 
+    const currentTotalSteps = this.currentReading.stepCount || 0;
+    const stepDelta = Math.max(0, currentTotalSteps - (this.lastFlushedStepCount || 0));
+    this.lastFlushedStepCount = currentTotalSteps;
+
     return {
       timestamp: Date.now(),
       latitude: this.currentReading.latitude,
@@ -713,7 +725,8 @@ class SensorManager {
       speed: this.currentReading.speed,
       distanceKm: this.currentReading.distanceKm,
       heading: this.currentReading.heading,
-      stepCount: this.currentReading.stepCount,
+      stepCount: currentTotalSteps,
+      stepDelta,
       walkingConfidence: this.currentReading.walkingConfidence,
       isWalkingVerified: this.currentReading.isWalkingVerified,
       speeds: buffer.speeds.length > 0 ? buffer.speeds : [this.currentReading.speed],

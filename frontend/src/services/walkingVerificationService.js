@@ -107,8 +107,8 @@ export class WalkingVerificationService {
       hasGps,
       hasAccelerometer,
       hasGyroscope,
-      hasStepCounter: hasNativeStepCounter || (isMobile && hasAccelerometer),
-      isSupportedForWalkingVerification: isMobile && hasGps,
+      hasStepCounter: Boolean(hasNativeStepCounter || hasAccelerometer || isMobile),
+      isSupportedForWalkingVerification: Boolean(hasGps),
       requiresMotionPermission: os === 'iOS' && typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function',
     };
   }
@@ -200,13 +200,18 @@ export class WalkingVerificationService {
     if (this.lowPassFilteredMag === 0 || isNaN(this.lowPassFilteredMag)) {
       this.lowPassFilteredMag = medianMag;
     }
-    this.lowPassFilteredMag = 0.75 * this.lowPassFilteredMag + 0.25 * medianMag;
+    this.lowPassFilteredMag = 0.65 * this.lowPassFilteredMag + 0.35 * medianMag;
 
     // Isolate dynamic acceleration from static Earth gravity vector (9.81 m/s²)
-    if (this.lowPassFilteredMag > 6.0 && this.lowPassFilteredMag < 14.0) {
-      this.gravityEstimate = 0.990 * this.gravityEstimate + 0.010 * this.lowPassFilteredMag;
+    let dynamicDelta = 0;
+    if (accel.isLinear) {
+      dynamicDelta = this.lowPassFilteredMag;
+    } else {
+      if (this.lowPassFilteredMag > 6.0 && this.lowPassFilteredMag < 14.0) {
+        this.gravityEstimate = 0.990 * this.gravityEstimate + 0.010 * this.lowPassFilteredMag;
+      }
+      dynamicDelta = this.lowPassFilteredMag - this.gravityEstimate;
     }
-    const dynamicDelta = this.lowPassFilteredMag - this.gravityEstimate;
     const dynamicMag = Math.max(0, dynamicDelta);
 
     // 3. Vehicular Speed Gating & Mode Lockout (Lock steps when riding scooter, driving, or > 7.5 km/h)
@@ -226,16 +231,16 @@ export class WalkingVerificationService {
       };
     }
 
-    // Adaptive dynamic step threshold: dynamically adjusts between 0.45 m/s² (gentle pocket walk)
-    // and 2.0 m/s² (running/fast stride) based on verified recent peaks
+    // Adaptive dynamic step threshold: dynamically adjusts between 0.30 m/s² (gentle pocket walk)
+    // and 1.8 m/s² (running/fast stride) based on verified recent peaks
     const recentPeakAvg = this.recentPeaks.length > 0
       ? this.recentPeaks.reduce((a, b) => a + b, 0) / this.recentPeaks.length
-      : 1.1;
-    const dynamicThreshold = Math.max(0.45, Math.min(2.0, recentPeakAvg * 0.45));
+      : 1.0;
+    const dynamicThreshold = Math.max(0.30, Math.min(1.8, recentPeakAvg * 0.40));
 
     let stepDetected = false;
 
-    // Check refractory cooldown period (minimum 230ms between steps -> max 260 steps/min)
+    // Check refractory cooldown period (minimum 200ms between steps -> max 300 steps/min)
     if (timestamp < this.refractoryUntil) {
       if (dynamicDelta < this.currentValley) {
         this.currentValley = dynamicDelta;
@@ -253,7 +258,7 @@ export class WalkingVerificationService {
         case 'RISING':
           if (dynamicDelta > this.currentPeak) {
             this.currentPeak = dynamicDelta;
-          } else if (dynamicDelta < this.currentPeak - 0.20 || dynamicDelta < dynamicThreshold * 0.85) {
+          } else if (dynamicDelta < this.currentPeak - 0.15 || dynamicDelta < dynamicThreshold * 0.85) {
             // Peak reached and starting to descend
             this.state = 'FALLING';
             this.currentValley = dynamicDelta;
@@ -265,19 +270,19 @@ export class WalkingVerificationService {
             this.currentValley = dynamicDelta;
           }
 
-          // Valley confirmed when signal drops back to stance baseline
-          if (dynamicDelta <= dynamicThreshold * 0.35 || dynamicDelta <= 0.15 || dynamicDelta < this.currentPeak - 0.35) {
-            const timeSinceLastCandidate = this.lastCandidateTimestamp > 0 ? (timestamp - this.lastCandidateTimestamp) : 0;
-            const isCurrentlyWalking = this.recentSteps.length > 0 && (timestamp - this.lastStepTimestamp <= 2500);
+          // Valley confirmed when signal drops back to stance baseline, or starts rising into next stride
+          const isValleyBaseline = dynamicDelta <= dynamicThreshold * 0.50 || dynamicDelta <= 0.22 || dynamicDelta < this.currentPeak - 0.28;
+          const isRisingAgain = dynamicDelta > this.currentValley + 0.16;
 
-            // Set refractory cooldown for any registered candidate step (230ms)
-            this.refractoryUntil = timestamp + 230;
+          if (isValleyBaseline || isRisingAgain) {
+            // Set refractory cooldown for candidate step
+            this.refractoryUntil = timestamp + 210;
 
             const timeSinceLastStep = this.lastStepTimestamp > 0 ? (timestamp - this.lastStepTimestamp) : 999999;
-            const isGenuineFootstrike = this.currentPeak >= 0.55 && (this.currentPeak - this.currentValley >= 0.40);
+            const isGenuineFootstrike = this.currentPeak >= 0.40 && (this.currentPeak - this.currentValley >= 0.30);
 
             // Genuine human footstep detected: increment by exactly 1
-            if (isGenuineFootstrike && timeSinceLastStep >= 280) {
+            if (isGenuineFootstrike && timeSinceLastStep >= 240) {
               this.stepCount++;
               this.lastStepTimestamp = timestamp;
               this.lastCandidateTimestamp = timestamp;
@@ -288,7 +293,7 @@ export class WalkingVerificationService {
               if (this.recentPeaks.length > 6) this.recentPeaks.shift();
 
               stepDetected = true;
-              this.refractoryUntil = timestamp + 260;
+              this.refractoryUntil = timestamp + 230;
             }
 
             this.state = 'ARMED';
@@ -328,9 +333,6 @@ export class WalkingVerificationService {
     return false;
   }
 
-  /**
-   * Compute instantaneous cadence (steps per minute) over rolling window
-   */
   computeCadence(now = Date.now()) {
     if (this.recentSteps.length < 2) return 0;
     const timeSinceLast = now - this.recentSteps[this.recentSteps.length - 1];

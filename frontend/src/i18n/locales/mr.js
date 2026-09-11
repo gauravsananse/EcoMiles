@@ -1,7 +1,7 @@
 export default {
   nav: {
-    brandTitle: 'ग्रीन क्रेडिट्स',
-    brandSubtitle: 'स्मार्ट मोबिलिटी प्लॅटफॉर्म',
+    brandTitle: 'EcoMiles',
+    brandSubtitle: 'Every Mile, Green Smile',
     tabTracker: 'ग्रीन प्रवास',
     tabRoutes: 'स्मार्ट मार्ग',
     tabCity: 'शहर नेटवर्क',
@@ -202,8 +202,8 @@ export default {
     kn: 'ಕನ್ನಡ (Kannada)',
   },
   footer: {
-    tagline: 'ग्रीन क्रेडिट — एआय मल्टिमॉडेल मोबिलिटी व्हेरिफिकेशन प्लॅटफॉर्म',
-    subtagline: 'रिअल-टाईम गुगल रूटिंग • सेन्सर फ्युजन • अँटी-फ्रॉड कायनेमॅटिक ऑडिट • क्रिप्टोग्राफिक रिवॉर्ड पडताळणी',
+    tagline: 'EcoMiles — Every Mile, Green Smile',
+    subtagline: 'EcoMiles — Every Mile, Green Smile',
   },
   common: {
     loading: 'लोड होत आहे...',

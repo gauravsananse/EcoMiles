@@ -1,7 +1,7 @@
 export default {
   nav: {
-    brandTitle: 'ಗ್ರೀನ್ ಕ್ರೆಡಿಟ್ಸ್',
-    brandSubtitle: 'ಸ್ಮಾರ್ಟ್ ಮೊಬಿಲಿಟಿ ಪ್ಲಾಟ್‌ಫಾರ್ಮ್',
+    brandTitle: 'EcoMiles',
+    brandSubtitle: 'Every Mile, Green Smile',
     tabTracker: 'ಹಸಿರು ಪ್ರಯಾಣ',
     tabRoutes: 'ಸ್ಮಾರ್ಟ್ ಮಾರ್ಗಗಳು',
     tabCity: 'ನಗರ ನೆಟ್‌ವರ್ಕ್',
@@ -202,8 +202,8 @@ export default {
     kn: 'ಕನ್ನಡ (Kannada)',
   },
   footer: {
-    tagline: 'ಗ್ರೀನ್ ಕ್ರೆಡಿಟ್ — AI ಮಲ್ಟಿಮೋಡಲ್ ಮೊಬಿಲಿಟಿ ಪರಿಶೀಲನಾ ಪ್ಲಾಟ್‌ಫಾರ್ಮ್',
-    subtagline: 'ನೈಜ-ಸಮಯದ ಗೂಗಲ್ ರೂಟಿಂಗ್ • ಸಂವೇದಕ ಸಮ್ಮಿಲನ • ವಂಚನೆ-ವಿರೋಧಿ ಆಡಿಟ್ • ಬಹುಮಾನ ಪರಿಶೀಲನೆ',
+    tagline: 'EcoMiles — Every Mile, Green Smile',
+    subtagline: 'EcoMiles — Every Mile, Green Smile',
   },
   common: {
     loading: 'ಲೋಡ್ ಆಗುತ್ತಿದೆ...',

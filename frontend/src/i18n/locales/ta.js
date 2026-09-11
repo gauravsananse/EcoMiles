@@ -1,7 +1,7 @@
 export default {
   nav: {
-    brandTitle: 'கிரீன் கிரெடிட்ஸ்',
-    brandSubtitle: 'ஸ்மார்ட் மொபிலிட்டி பிளாட்ஃபார்ம்',
+    brandTitle: 'EcoMiles',
+    brandSubtitle: 'Every Mile, Green Smile',
     tabTracker: 'பசுமைப் பயணம்',
     tabRoutes: 'ஸ்மார்ட் வழிகள்',
     tabCity: 'நகர நெட்வொர்க்',
@@ -202,8 +202,8 @@ export default {
     kn: 'ಕನ್ನಡ (Kannada)',
   },
   footer: {
-    tagline: 'கிரீன் கிரெடிட் — AI மல்டிமாடல் மொபிலிட்டி சரிபார்ப்பு தளம்',
-    subtagline: 'நிகழ்நேர கூகிள் ரூட்டிங் • சென்சார் இணைவு • மோசடி தடுப்பு தணிக்கை • வெகுமதி சரிபார்ப்பு',
+    tagline: 'EcoMiles — Every Mile, Green Smile',
+    subtagline: 'EcoMiles — Every Mile, Green Smile',
   },
   common: {
     loading: 'ஏற்றப்படுகிறது...',

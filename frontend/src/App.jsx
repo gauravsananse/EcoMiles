@@ -20,7 +20,7 @@ function AppContent() {
       if (tabParam) return tabParam;
       if (params.get('journeyId') || params.get('pair')) return 'tracker';
     }
-    return 'routes';
+    return 'tracker';
   });
   const [selectedRouteToTrack, setSelectedRouteToTrack] = useState(null);
   const [authModal, setAuthModal] = useState(null); // 'login' | 'register' | null

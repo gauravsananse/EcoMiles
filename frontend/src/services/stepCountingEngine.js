@@ -57,9 +57,9 @@ class StepCountingEngine {
     this.currentMode = (normMode === 'WALK' || normMode === 'WALKING') ? 'WALKING' : normMode;
     this.walkingConfidence = confidence;
 
-    const isWalking = this.currentMode === 'WALKING';
+    const isWalkingOrStationary = this.currentMode === 'WALKING' || this.currentMode === 'STATIONARY';
 
-    if (isWalking) {
+    if (isWalkingOrStationary) {
       this.stepCountingEnabled = true;
     } else {
       // Immediately disable verified step accumulation during vehicular travel, cycling, etc.
@@ -75,7 +75,8 @@ class StepCountingEngine {
    * Process raw hardware or estimated step increment
    */
   registerStep(timestamp = Date.now(), delta = 1, isEstimated = true) {
-    if (!this.stepCountingEnabled || this.currentMode !== 'WALKING') {
+    const isModeActive = this.currentMode === 'WALKING' || this.currentMode === 'WALK' || this.currentMode === 'STATIONARY';
+    if (!this.stepCountingEnabled || !isModeActive) {
       return;
     }
 
@@ -86,9 +87,12 @@ class StepCountingEngine {
       this.estimatedSteps += delta;
     }
 
-    // Only attribute to verified steps if walking confidence has been established
-    if (this.walkingConfidence >= 0.60 || this.sessionSteps >= 4) {
-      this.verifiedWalkingSteps += delta;
+    // Once rhythmic walking is established (>= 4 consecutive steps or confidence >= 0.50),
+    // fully attribute all session steps so earlier steps are credited.
+    if (this.sessionSteps >= 4 || this.walkingConfidence >= 0.50) {
+      this.verifiedWalkingSteps = this.sessionSteps;
+    } else {
+      this.verifiedWalkingSteps = 0;
     }
 
     this.notifyUpdate();

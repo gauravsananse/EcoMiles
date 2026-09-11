@@ -28,12 +28,18 @@ export default function Navbar({
       <div className="navbar-inner" style={{ flexWrap: 'wrap', gap: '0.75rem' }}>
         {/* Brand */}
         <div className="brand" onClick={() => onSelectTab('tracker')} style={{ cursor: 'pointer' }}>
-          <div className="brand-icon">
-            <Zap size={22} strokeWidth={2.5} />
+          <div className="brand-icon" style={{ overflow: 'hidden', padding: 0, background: 'transparent', borderRadius: '50%', boxShadow: '0 2px 8px rgba(5, 150, 105, 0.2)', border: 'none' }}>
+            <img
+              src="/logo.png"
+              alt="EcoMiles Logo"
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
           </div>
           <div>
-            <div style={{ lineHeight: 1.1, fontSize: '1.15rem' }}>{t('nav.brandTitle')}</div>
-            <div style={{ fontSize: '0.7rem', color: '#059669', fontWeight: 700, letterSpacing: '0.06em' }}>
+            <div style={{ lineHeight: 1.1, fontSize: '1.2rem', fontWeight: 800, color: 'var(--slate-900)' }}>
+              {t('nav.brandTitle')}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: '#059669', fontWeight: 700, letterSpacing: '0.03em', marginTop: '1px' }}>
               {t('nav.brandSubtitle')}
             </div>
           </div>

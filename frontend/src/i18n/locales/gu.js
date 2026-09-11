@@ -1,7 +1,7 @@
 export default {
   nav: {
-    brandTitle: 'ગ્રીન ક્રેડિટ્સ',
-    brandSubtitle: 'સ્માર્ટ મોબિલિટી પ્લેટફોર્મ',
+    brandTitle: 'EcoMiles',
+    brandSubtitle: 'Every Mile, Green Smile',
     tabTracker: 'ગ્રીન યાત્રા',
     tabRoutes: 'સ્માર્ટ રૂટ્સ',
     tabCity: 'સિટી નેટવર્ક',
@@ -202,8 +202,8 @@ export default {
     kn: 'ಕನ್ನಡ (Kannada)',
   },
   footer: {
-    tagline: 'ગ્રીન ક્રેડિટ — એઆઈ મલ્ટીમોડલ મોબિલિટી વેરિફિકેશન પ્લેટફોર્મ',
-    subtagline: 'રિયલ-ટાઇમ ગૂગલ રૂટિંગ • સેન્સર ફ્યુઝન • એન્ટિ-ફ્રોડ ઓડિટ • ક્રિપ્ટોગ્રાફિક રિવોર્ડ ચકાસણી',
+    tagline: 'EcoMiles — Every Mile, Green Smile',
+    subtagline: 'EcoMiles — Every Mile, Green Smile',
   },
   common: {
     loading: 'લોડ થઈ રહ્યું છે...',

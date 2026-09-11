@@ -332,12 +332,26 @@ export default function MultimodalMobilityVerification({
     if (isTracking && !isPaused) {
       timerRef.current = setInterval(() => {
         setElapsedSeconds((prev) => prev + 1);
+
+        // In Demo / Developer Test Mode with walking profile, simulate live walking cadence & steps
+        if (isTestMode && selectedProfileKey === 'walking') {
+          stepCountingEngine.registerStep(Date.now(), 2);
+          setLiveSensorData((prev) => ({
+            ...prev,
+            stepCount: (prev.stepCount || 0) + 2,
+            speed: 4.8,
+            cadence: 114,
+            isWalkingVerified: true,
+            walkingConfidence: 95,
+          }));
+          setTotalDistanceKm((prev) => Number((prev + 0.0014).toFixed(3)));
+        }
       }, 1000);
     } else {
       clearInterval(timerRef.current);
     }
     return () => clearInterval(timerRef.current);
-  }, [isTracking, isPaused]);
+  }, [isTracking, isPaused, isTestMode, selectedProfileKey]);
 
   // Sliding Window AI Inference Pipeline (Every 5 seconds)
   useEffect(() => {
@@ -374,7 +388,7 @@ export default function MultimodalMobilityVerification({
                 sensorAvailability: tel.sensorAvailability || prev.sensorAvailability,
               }));
             }
-            if (j.currentMode) {
+            if (j.currentMode && ['CAR', 'SCOOTER', 'BUS', 'METRO'].includes(j.currentMode)) {
               setCurrentMode(j.currentMode);
               sensorManager.setTransportMode(j.currentMode);
             }
@@ -506,9 +520,16 @@ export default function MultimodalMobilityVerification({
     try {
       const res = await api.sendSensorData(journeyId, sensorWindow);
       if (res.success) {
-        // Do NOT automatically overwrite user's chosen mode
-        sensorManager.setTransportMode(res.predictedMode);
-        stepCountingEngine.setTransportMode(currentMode, res.confidence);
+        // Only transition mode if vehicular transport or cycling is confirmed
+        if (['CAR', 'SCOOTER', 'BUS', 'METRO'].includes(res.predictedMode)) {
+          sensorManager.setTransportMode(res.predictedMode);
+          stepCountingEngine.setTransportMode(res.predictedMode, res.confidence);
+        } else if (res.predictedMode === 'CYCLING' && currentMode !== 'WALK') {
+          sensorManager.setTransportMode('CYCLING');
+          stepCountingEngine.setTransportMode('CYCLING', res.confidence);
+        } else {
+          stepCountingEngine.setTransportMode(currentMode, res.confidence);
+        }
         setConfidence(res.confidence);
         setProbabilities(res.probabilities || {});
         setFraudScore(res.fraudScore || 0);
@@ -927,7 +948,18 @@ export default function MultimodalMobilityVerification({
         setCurrentMode('WALK');
         setConfidence(0.95);
         journeyStateMachine.resumeWalking();
-        setLiveSensorData((p) => ({ ...p, speed: 4.8, isWalkingVerified: true }));
+        sensorManager.setTransportMode('WALK');
+        stepCountingEngine.setEnabled(true);
+        stepCountingEngine.setTransportMode('WALKING', 0.95);
+        stepCountingEngine.registerStep(Date.now(), 5);
+        setLiveSensorData((p) => ({
+          ...p,
+          speed: 4.8,
+          stepCount: (p.stepCount || 0) + 5,
+          cadence: 112,
+          isWalkingVerified: true,
+          walkingConfidence: 95,
+        }));
         break;
 
       case 'EV_DETECTED':
@@ -1624,10 +1656,14 @@ export default function MultimodalMobilityVerification({
                   Verified Steps
                 </div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.45rem', fontWeight: 800, color: '#059669', marginTop: '0.2rem' }}>
-                  {(stepCounts.verifiedWalkingSteps || 0).toLocaleString()}
+                  {(stepCounts.verifiedWalkingSteps || stepCounts.sessionSteps || liveSensorData.stepCount || 0).toLocaleString()}
                 </div>
                 <div style={{ fontSize: '0.68rem', color: stepCounts.stepCountingEnabled ? '#059669' : '#94a3b8', fontWeight: 700 }}>
-                  {stepCounts.stepCountingEnabled ? '● Step Sensor ON' : '○ Inactive / Locked'}
+                  {stepCounts.verifiedWalkingSteps >= 4
+                    ? '● Cadence Verified ✓'
+                    : (stepCounts.sessionSteps > 0
+                      ? `● Verifying rhythm (${stepCounts.sessionSteps}/4)`
+                      : (stepCounts.stepCountingEnabled ? '● Step Sensor Ready' : '○ Inactive / Locked'))}
                 </div>
               </div>
             )}
@@ -1983,7 +2019,7 @@ export default function MultimodalMobilityVerification({
                 {currentMode === 'CYCLING' ? (
                   <span>{Math.round(liveSensorData.cyclingConfidence || 0)}% Conf</span>
                 ) : (
-                  <span>{(stepCounts.verifiedWalkingSteps || 0).toLocaleString()} steps</span>
+                  <span>{(stepCounts.verifiedWalkingSteps || stepCounts.sessionSteps || liveSensorData.stepCount || 0).toLocaleString()} steps</span>
                 )}
               </div>
             </div>

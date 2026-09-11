@@ -1,7 +1,7 @@
 export default {
   nav: {
-    brandTitle: 'గ్రీన్ క్రెడిట్స్',
-    brandSubtitle: 'స్మార్ట్ మొబిలిటీ ప్లాట్‌ఫారమ్',
+    brandTitle: 'EcoMiles',
+    brandSubtitle: 'Every Mile, Green Smile',
     tabTracker: 'గ్రీన్ ప్రయాణం',
     tabRoutes: 'స్మార్ట్ మార్గాలు',
     tabCity: 'సిటీ నెట్‌వర్క్',
@@ -202,8 +202,8 @@ export default {
     kn: 'ಕನ್ನಡ (Kannada)',
   },
   footer: {
-    tagline: 'గ్రీన్ క్రెడిట్ — AI మల్టీమోడల్ మొబిలిటీ వెరిఫికేషన్ ప్లాట్‌ఫారమ్',
-    subtagline: 'రియల్-టైమ్ గూగుల్ రూటింగ్ • సెన్సార్ ఫ్యూజన్ • మోసాల నిరోధక ఆడిట్ • రివార్డ్ ధృవీకరణ',
+    tagline: 'EcoMiles — Every Mile, Green Smile',
+    subtagline: 'EcoMiles — Every Mile, Green Smile',
   },
   common: {
     loading: 'లోడ్ అవుతోంది...',

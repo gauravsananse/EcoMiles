@@ -1,7 +1,7 @@
 export default {
   nav: {
-    brandTitle: 'গ্রিন ক্রেডিট',
-    brandSubtitle: 'স্মার্ট মোবিলিটি প্ল্যাটফর্ম',
+    brandTitle: 'EcoMiles',
+    brandSubtitle: 'Every Mile, Green Smile',
     tabTracker: 'গ্রিন যাত্রা',
     tabRoutes: 'স্মার্ট রুট',
     tabCity: 'সিটি নেটওয়ার্ক',
@@ -202,8 +202,8 @@ export default {
     kn: 'ಕನ್ನಡ (Kannada)',
   },
   footer: {
-    tagline: 'গ্রিন ক্রেডিট — এআই মাল্টিমোডাল মোবিলিটি ভেরিফিকেশন প্ল্যাটফর্ম',
-    subtagline: 'রিয়েল-টাইম গুগল রাউটিং • সেন্সর ফিউশন • জালিয়াতি বিরোধী অডিট • রিওয়ার্ড যাচাইকরণ',
+    tagline: 'EcoMiles — Every Mile, Green Smile',
+    subtagline: 'EcoMiles — Every Mile, Green Smile',
   },
   common: {
     loading: 'লোড হচ্ছে...',

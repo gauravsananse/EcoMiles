@@ -1,7 +1,7 @@
 export default {
   nav: {
-    brandTitle: 'Green Credits',
-    brandSubtitle: 'SMART MOBILITY PLATFORM',
+    brandTitle: 'EcoMiles',
+    brandSubtitle: 'Every Mile, Green Smile',
     tabTracker: 'Green Journey',
     tabRoutes: 'Smart Routes',
     tabCity: 'City Network',
@@ -202,8 +202,8 @@ export default {
     kn: 'ಕನ್ನಡ (Kannada)',
   },
   footer: {
-    tagline: 'Green Credit — AI Multimodal Mobility Verification Platform',
-    subtagline: 'Real-time Google routing • Sensor fusion • Anti-fraud kinematic audit • Cryptographic reward verification',
+    tagline: 'EcoMiles — Every Mile, Green Smile',
+    subtagline: 'EcoMiles — Every Mile, Green Smile',
   },
   common: {
     loading: 'Loading...',

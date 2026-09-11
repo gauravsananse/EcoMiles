@@ -66,17 +66,15 @@ export default function Login({ isOpen, onClose, onSwitchToRegister, onSuccess }
 
         <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
           <div style={{
-            width: '44px',
-            height: '44px',
-            background: 'var(--primary-50)',
-            color: 'var(--primary-600)',
-            borderRadius: '12px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            width: '64px',
+            height: '64px',
+            borderRadius: '50%',
+            overflow: 'hidden',
             margin: '0 auto 0.75rem',
+            boxShadow: '0 4px 12px rgba(5, 150, 105, 0.2)',
+            background: 'transparent',
           }}>
-            <Zap size={24} />
+            <img src="/logo.png" alt="EcoMiles" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           </div>
           <h2 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--slate-900)' }}>
             {t('auth.loginTitle')}
